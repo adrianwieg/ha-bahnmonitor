@@ -67,13 +67,28 @@ def evaluate_turnaround(incoming: dict | None, departure: datetime, min_turn: in
         return {"status": "unknown", "risk": False, "reason": "Noch keine Ankunftsprognose"}
     remaining = (departure - predicted).total_seconds() / 60
     risk = remaining < min_turn
+    earliest = predicted + timedelta(minutes=min_turn)
+    potential_delay = max(
+        0, round((earliest - departure).total_seconds() / 60)
+    )
     return {
         "status": "possible" if risk else "no_indication",
         "risk": risk,
-        "reason": "Mögliche Folgeverspätung, Fahrzeugdurchbindung unbestätigt" if risk else "Keine Hinweise aus möglicher Vorleistung",
+        "reason": (
+            f"Nur {round(remaining)} Min. rechnerische Wendezeit bei "
+            f"{min_turn} Min. angenommenem Mindestpuffer; "
+            "mögliche Folgeverspätung, Fahrzeugdurchbindung unbestätigt"
+            if risk else
+            f"{round(remaining)} Min. rechnerische Wendezeit; "
+            "keine Hinweise aus der möglichen Vorleistung"
+        ),
         "incoming_planned": planned.isoformat(),
         "incoming_predicted": predicted.isoformat(),
         "incoming_delay_minutes": delay_minutes(incoming),
         "turnaround_buffer_minutes": round(remaining),
+        "minimum_turnaround_minutes": min_turn,
+        "earliest_plausible_outgoing": earliest.isoformat(),
+        "estimated_minimum_followup_delay_minutes": potential_delay,
+        "estimated_delay_only_if_same_vehicle": True,
         "confirmed_vehicle": False,
     }
