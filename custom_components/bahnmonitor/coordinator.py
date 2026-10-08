@@ -170,7 +170,17 @@ class BahnCoordinator(DataUpdateCoordinator):
             # operation, punctuality, cancellation or vehicle circulation.
             if due and not fresh and self.gtfs is not None:
                 try:
-                    gtfs_trip = await self.gtfs.find(self.settings, planned, window)
+                    if hasattr(self.gtfs, "find_explained"):
+                        gtfs_trip, gtfs_detail = await self.gtfs.find_explained(
+                            self.settings, planned, window,
+                        )
+                    else:
+                        # Compatibility with a simple alternative timetable
+                        # provider implementing the original find contract.
+                        gtfs_trip = await self.gtfs.find(
+                            self.settings, planned, window,
+                        )
+                        gtfs_detail = {}
                 except GtfsError as exc:
                     self._gtfs_error = str(exc)
                 else:
@@ -180,6 +190,40 @@ class BahnCoordinator(DataUpdateCoordinator):
                         cached = gtfs_trip
                         fresh = True
                         self._last_successful_update = now
+                        self._daily_cache[key] = cached
+                    elif gtfs_detail:
+                        reason = gtfs_detail.get("reason")
+                        message = {
+                            "no_matching_direct_route":
+                                "Im GTFS-Sollfahrplan keine direkte RE-Verbindung "
+                                "zwischen Start und Ziel gefunden.",
+                            "no_departure_within_search_window":
+                                "GTFS enthält die Strecke, aber keine passende "
+                                "Abfahrt im konfigurierten Zeitfenster.",
+                            "ambiguous_multiple_departures":
+                                "GTFS enthält mehrere passende Abfahrten; "
+                                "Zuordnung nicht eindeutig.",
+                            "no_active_calendar_service":
+                                "Kein passender Kalendereintrag im GTFS-Feed.",
+                            "line_not_in_feed":
+                                "Die konfigurierte Linie fehlt im GTFS-Feed.",
+                        }.get(reason, "Keine bestätigte GTFS-Fahrt gefunden.")
+                        nearest = gtfs_detail.get("nearest_planned_departures") or []
+                        if nearest and reason == "no_departure_within_search_window":
+                            message += f" Nächste bekannte Sollabfahrt: {nearest[0][11:16]}."
+                        cached = {
+                            "date": key,
+                            "status": "unknown",
+                            "scheduled_departure": planned.isoformat(),
+                            "message": message,
+                            "gtfs_match_reason": reason,
+                            "gtfs_nearest": nearest,
+                            "gtfs_origin_services": gtfs_detail.get(
+                                "nearest_origin_departures", [],
+                            ),
+                            "source_checked": "GTFS Deutschland (Sollfahrplan)",
+                            "timetable_confirmed": False,
+                        }
                         self._daily_cache[key] = cached
 
             if due and not fresh and not blocked and not failed:
