@@ -16,7 +16,7 @@ async def async_get_config_entry_diagnostics(
     coord = entry.runtime_data
     data = coord.data or {}
     return {
-        "version": "0.2.0",
+        "version": "0.2.2",
         "entry_title": entry.title,
         "configured_route": {
             "origin": coord.settings.get("origin"),
