@@ -197,14 +197,16 @@ def test_route_status_explains_which_trains_caused_warning():
     }]
     data = health.summarise(earlier, target=target, now=now, upcoming=forecast)
     assert data["status"] == "Auffällig"
-    assert data["previous_delayed_count"] == 2
-    assert data["forecast_delayed_count"] == 1
-    assert data["average_delay_minutes"] == 14.5
+    assert data["previous_delayed_count"] == 1
+    assert data["forecast_delayed_count"] == 2
+    assert data["awaiting_count"] == 1
+    assert data["average_delay_minutes"] == 23
     assert data["maximum_delay_minutes"] == 23
     assert "07:18 RE 1" in data["reason"]
     assert "08:09 RE 1" in data["reason"]
     assert "08:43 RE 1" in data["reason"]
-    assert "Abfahrtsprognose" in data["reason"]
+    assert "Sollzeit vorbei, Prognose 08:15" in data["reason"]
+    assert "bevorstehende Abfahrtsprognose" in data["reason"]
     assert len(data["trigger_reasons"]) == 3
 
 
@@ -235,7 +237,68 @@ def test_route_health_state_not_overwritten_by_future_forecast_label():
     )
     assert result["status_code"] == "high"
     assert result["status"] == "Stark gestört"
-    assert "Abfahrtsprognose" in result["reason"]
-    assert result["previous_delayed_count"] == 2
-    assert result["forecast_delayed_count"] == 1
-    assert result["average_delay_minutes"] == 34
+    assert "Sollzeit vorbei, Prognose 08:54" in result["reason"]
+    assert "bevorstehende Abfahrtsprognose" in result["reason"]
+    assert result["previous_delayed_count"] == 1
+    assert result["forecast_delayed_count"] == 2
+    assert result["awaiting_count"] == 1
+    assert result["average_delay_minutes"] == 23
+
+
+def test_overdue_45min_train_not_counted_as_departed_at_0844():
+    """Regression based on HA diagnostics: 08:43 +45 => expected at 09:28."""
+    now = at(8, 44)
+    target = at(16, 9)
+    board = [
+        {"train": "RE RE1", "destination": "Leinefelde",
+         "scheduledDeparture": "08:09", "delayDeparture": 45},
+    ]
+    reverse_board = [
+        {"train": "RE RE1", "destination": "Göttingen",
+         "scheduledDeparture": "07:18", "delayDeparture": 23},
+        {"train": "RE RE1", "destination": "Göttingen",
+         "scheduledDeparture": "08:43", "delayDeparture": 45},
+        {"train": "RE RE1", "destination": "Göttingen",
+         "scheduledDeparture": "09:18", "delayDeparture": 7},
+    ]
+    earlier = health.collect_previous(
+        board, direction="same", origin="Göttingen",
+        destination="Leinefelde", planned=target, now=now,
+    )
+    earlier += health.collect_previous(
+        reverse_board, direction="reverse", origin="Leinefelde",
+        destination="Göttingen", planned=target, now=now,
+    )
+    upcoming = health.collect_upcoming(
+        reverse_board, direction="reverse", origin="Leinefelde",
+        destination="Göttingen", now=now,
+    )
+    result = health.summarise(earlier, target=target, now=now, upcoming=upcoming)
+    assert result["status"] == "Stark gestört"
+    assert result["sample_count"] == 1
+    assert result["awaiting_count"] == 2
+    assert result["upcoming_scheduled_count"] == 1
+    assert result["same_direction"]["count"] == 0
+    assert result["reverse_direction"]["count"] == 1
+    assert result["reverse_direction"]["awaiting_departures"][0]["predicted_departure"] == at(9, 28).isoformat()
+    assert "08:43 RE 1" in result["reason"]
+    assert "Prognose 09:28" in result["reason"]
+    assert "Sollzeit und Prognosezeit vergangen" in result["reason"]
+    assert result["average_delay_minutes"] == 23
+    assert result["delayed_count"] == 4
+    assert result["vehicle_assignment_confirmed"] is False
+
+
+def test_delayed_train_moves_out_of_awaiting_only_after_predicted_time():
+    row = {
+        "direction": "same", "line": "RE 1", "train": "RE RE1",
+        "scheduled_departure": at(8, 43).isoformat(),
+        "delay_minutes": 45, "cancelled": False,
+        "observed_at": at(8, 44).isoformat(),
+    }
+    early = health.summarise([row], target=at(16, 9), now=at(8, 44))
+    late = health.summarise([row], target=at(16, 9), now=at(9, 29))
+    assert early["awaiting_count"] == 1
+    assert early["sample_count"] == 0
+    assert late["awaiting_count"] == 0
+    assert late["sample_count"] == 1
