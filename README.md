@@ -1,4 +1,4 @@
-# Bahnmonitor – Home Assistant (v0.1.6, Prototyp)
+# Bahnmonitor – Home Assistant (v0.2.0, Prototyp)
 
 Überwacht wiederkehrende Verbindungen (z. B. RE 1 und RE 11 zwischen Leinefelde und Göttingen) bis zu sieben Tage im Voraus. Jede Fahrt wird als eigener GUI-Eintrag angelegt. Für Fahrten ab Göttingen kann eine **mögliche** Folgeverspätung aus einem ankommenden Zug derselben Linie abgeleitet werden. Die physische Fahrzeugdurchbindung wird **nicht** nachgewiesen.
 
@@ -43,6 +43,36 @@ Den Ordner `custom_components/bahnmonitor` nach `/config/custom_components/bahnm
 
 Bei Ausfall der Fern-Fahrplandaten bleibt die Integration geladen; Fahrten mit aktuellen IRIS-Daten bleiben nutzbar. Der Sensor **Fahrplandienst** meldet `partial`, wenn nur ein Teil der sieben Tage abgedeckt ist, und `unavailable`, wenn keine frischen Daten verfügbar sind. Vorhandene Werte werden bei nicht erfolgreicher Aktualisierung als `stale` gekennzeichnet. Binärsensoren werden bei fehlender oder nicht zuordenbarer Datenlage nicht fälschlich als Entwarnung ausgegeben.
 
+## Neue Funktionen in v0.2.0
+
+### Lesbare Fahrtanzeige
+
+Der Sensor **Nächste Fahrt** zeigt nun deutschsprachige Zustände wie `Verspätet`, `Pünktlich`, `Planmäßig` oder `Fällt aus`. Als Attribute kommen `display_summary`, `display_departure`, `display_planned`, `display_delay`, `display_platform` und `platform_changed` hinzu. Die Rohdaten `journeys` und der maschinenlesbare `status_code` bleiben vorhanden. Bestehende Automationen, die auf den alten englischen Sensorzustand `delayed` reagieren, müssen ggf. auf `Verspätet` umgestellt werden.
+
+### Streckenlage – bis zu drei frühere Züge pro Richtung
+
+Ein zusätzlicher Sensor **Streckenlage** wertet die letzten erfassten **RE 1/RE 11** auf der konfigurierten Strecke und in der Gegenrichtung aus. Beispiel für eine Verbindung **16:09 Göttingen → Leinefelde**: Ab etwa 12:09 Uhr werden fahrplanmäßig bereits vergangene Abfahrten auf beiden Richtungen beobachtet; angezeigt werden Zuglinie, Sollabfahrt, Verspätung und ggf. ein gemeldeter Ausfall.
+
+- Die Datenquelle **DBF/IRIS-TTS** liefert vergangene Zugabfahrten nur in einem **begrenzten Fenster von etwa 60 Minuten** (Option `past=1`), deshalb wird bei jedem Abruf eine Liste in Home Assistant **im Arbeitsspeicher** fortgeführt. Sie bleibt auf maximal vier Stunden vor der eigenen Abfahrt begrenzt.
+- Pro Richtung zählen **höchstens drei verschiedene Züge**. Es werden nur genau zugeordnete RE 1 oder RE 11 und eine durch Ziel/Unterwegshalte nachweisbare Strecke berücksichtigt.
+- **Keine Daten:** kein verwertbarer früherer Zug erfasst. **Wenig Daten:** nur einer. **Unauffällig:** mindestens zwei, ohne Verspätung ab 3 Minuten. **Auffällig:** mindestens ein Zug mit 3 oder mehr Minuten Verspätung. **Stark gestört:** mindestens ein gemeldeter Ausfall oder mindestens zwei Züge mit jeweils 10 oder mehr Minuten Verspätung.
+- Die Einordnung ist **kein Verspätungsversprechen** für die eigene Fahrt. Eine planmäßig vergangene Abfahrt kann trotz Prognose noch unterwegs sein; die Daten belegen keine tatsächliche Fahrzeugdurchbindung. Bei unvollständigen oder fehlenden Daten wird keine Entwarnung behauptet.
+- **Nach einem Home-Assistant-Neustart ist die Tageshistorie leer**, weil sie in der aktuellen Version nicht persistent gespeichert wird. Sie wird bei weiteren Aktualisierungen neu aufgebaut. Das kann zu „Wenig Daten“ oder „Keine Daten“ führen.
+- Unter **Einstellungen → Geräte & Dienste → Bahnmonitor → Konfigurieren** kann „Streckenlage aktivieren“ ein- oder ausgeschaltet werden; für bestehende Einträge ist es standardmäßig aktiv.
+
+Die Attribute `same_direction` und `reverse_direction` enthalten Anzahl, Mittelwert, Verspätungen, Ausfälle und die jeweils jüngsten Züge. Der Sensor bleibt unabhängig davon, ob die siebentägige Fahrplanquelle einen 503-Fehler meldet.
+
+### Lovelace-Karte (ohne zusätzliche HACS-Frontend-Plugins)
+
+Die fertige Beispielkarte liegt in **[`examples/lovelace_card.yaml`](examples/lovelace_card.yaml)**.
+
+1. Dashboard öffnen → **Bearbeiten** → **Karte hinzufügen → Manuell**.
+2. Den Inhalt von `examples/lovelace_card.yaml` komplett in den YAML-Editor einfügen.
+3. Die dort referenzierten Entity-IDs `sensor.pendlerzug_naechste_fahrt`, `sensor.pendlerzug_streckenlage`, `sensor.pendlerzug_fahrplandienst` und `binary_sensor.pendlerzug_zugausfall` auf die tatsächlich vergebenen IDs ändern, falls nötig.
+4. Für weitere überwachte Züge kann die Karte kopiert und die Entity-IDs angepasst werden.
+
+Die Karte kombiniert die Abfahrtszeit und Gleisinformation mit einem Ampeltext zur Streckenlage und Tabellen der vorherigen Züge.
+
 ## Fehlerbehebung in v0.1.6
 
 IRIS meldet die Linie **RE 1** unter Umständen als `RE RE1` und die Linie **RE 11** als `RE RE11` (Produktklasse plus Linienkennung). Die frühere Erkennung behandelte diesen doppelten Präfix als unbekannte Linie. Ab v0.1.6 erkennt der Parser diese Namen als exakte Linienübereinstimmung und verwechselt RE1 und RE11 nicht. Auch die Prüfung einer möglichen Vorleistung in Göttingen profitiert von der Korrektur.
@@ -74,7 +104,7 @@ Der Diagnosesensor **Fahrplandienst** verwendet die menschenlesbaren Zustände `
 
 ## Sensoren und Automationen
 
-Jede Verbindung erzeugt einen Sensor `Nächste Fahrt` mit Attribut `journeys` für die kommenden sieben Tage sowie Binärsensoren für **Zugausfall** und **Mögliche Folgeverspätung**. Home Assistant legt die tatsächlichen Entity-IDs fest.
+Jede Verbindung erzeugt Sensoren `Nächste Fahrt`, `Streckenlage` und `Fahrplandienst` sowie Binärsensoren für **Zugausfall** und **Mögliche Folgeverspätung**. Home Assistant legt die tatsächlichen Entity-IDs fest.
 
 ```yaml
 alias: Bahnmonitor Warnung
@@ -99,4 +129,4 @@ Bitte die Entity-ID und den mobilen Benachrichtigungsdienst anpassen.
 - Stündliche Aktualisierung weiter entfernter Fahrten, näher an der Abfahrt alle zehn Minuten.
 - `not_found` bedeutet **nicht** einen bestätigten Ausfall.
 - Vorleistungsprüfung: gleiche Linie und passende Ankunftszeit, **keine bestätigte Fahrzeuginformation**.
-- Die Integration ist ein **ungetesteter Prototyp** und muss mit echten Home-Assistant-/Fahrplandaten geprüft werden. Insbesondere Datenformat, Bahnhofserkennung und HACS-Kompatibilität können weitere Anpassungen erfordern.
+- Die neue Streckenlagenfunktion ist ein **Prototyp** und muss mit echten Home-Assistant-/Fahrplandaten geprüft werden. Insbesondere Datenformat, Bahnhofserkennung und HACS-Kompatibilität können weitere Anpassungen erfordern.
