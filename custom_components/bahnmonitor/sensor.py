@@ -61,11 +61,9 @@ class BahnJourneySensor(BahnEntity):
             start_hhmm = result_time(start)
             result["display_status"] = f"Echtzeit ab {start_hhmm}"
             result["display_note"] = (
-                f"Zugbeobachtung startet um {start_hhmm} Uhr; "
-                "16:09 ist keine bestätigte Fahrplanzeit."
-                if self.coordinator.settings.get("departure_time") == "16:09"
-                else f"Zugbeobachtung startet um {start_hhmm} Uhr. "
-                     "Die bisherige Zeit stammt nur aus deiner Konfiguration."
+                f"Zugbeobachtung startet um {start_hhmm} Uhr. "
+                "Die bisherige Abfahrtszeit stammt aus deiner Konfiguration "
+                "und ist nicht durch die Datenquelle bestätigt."
             )
             result["display_summary"] = (
                 f"{self.coordinator.settings['line']} · "
