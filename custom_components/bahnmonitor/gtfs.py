@@ -265,10 +265,16 @@ class GtfsSchedule:
     async def find(self, settings: dict, when: datetime, tolerance: int) -> dict | None:
         await self._ensure()
         # Feed is shared across entries. Execute trips scan in HA's thread pool.
-        return await self._hass.async_add_executor_job(
+        result = await self._hass.async_add_executor_job(
             lambda: find_trip(
                 self._data, origin=settings["origin"],
                 destination=settings["destination"],
                 line=settings["line"], planned=when, tolerance=tolerance,
             )
         )
+        if result is not None and self._fetched is not None:
+            result["feed_fetched_at"] = self._fetched.isoformat()
+            result["stale"] = (
+                datetime.now(timezone.utc) - self._fetched >= REFRESH_INTERVAL
+            )
+        return result
