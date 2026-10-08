@@ -199,3 +199,54 @@ def test_inbound_origin_matching_never_guesses_between_two_services():
     )
     assert result["status"] == "ambiguous"
     assert result["count"] == 2
+
+
+
+def test_delay_reason_parser_reads_published_iris_messages_only():
+    board = {
+        "messages": {
+            "delay": [
+                {"timestamp": "2026-10-08T15:05:00", "text": "  Signalstörung  "},
+                {"timestamp": "2026-10-08T15:07:00", "text": "Signalstörung"},
+                {"timestamp": "2026-10-08T15:08:00", "text": " Verspätung aus vorheriger Fahrt "},
+            ],
+            "qos": [
+                {"timestamp": "2026-10-08T15:06:00", "text": "Klimaanlage defekt"},
+            ],
+        }
+    }
+    reasons = dbf.delay_messages(board)
+    assert [r["text"] for r in reasons] == [
+        "Signalstörung", "Verspätung aus vorheriger Fahrt",
+    ]
+    assert reasons[0]["timestamp"] == "2026-10-08T15:05:00"
+    assert all(r["source"] == "DBF/IRIS-TTS" for r in reasons)
+    assert dbf.delay_messages({"messages": {"qos": board["messages"]["qos"]}}) == []
+    assert dbf.delay_messages({"messages": {"delay": []}}) == []
+    assert dbf.delay_messages({"messages": None}) == []
+    assert dbf.delay_messages({"messages": {"delay": "Signalstörung"}}) == []
+
+
+def test_delay_reasons_follow_exact_matching_re1_departure():
+    board = [
+        {
+            "train": "RE RE1", "destination": "Leinefelde",
+            "scheduledDeparture": "16:09", "delayDeparture": 18,
+            "messages": {
+                "delay": [{"text": "Technische Störung am Zug", "timestamp": 123456}],
+                "qos": [{"text": "Fehlende Wagen"}],
+            },
+        },
+        {
+            "train": "RE RE11", "destination": "Leinefelde",
+            "scheduledDeparture": "16:09", "delayDeparture": 19,
+            "messages": {"delay": [{"text": "Streckensperrung"}]},
+        },
+    ]
+    trip = dbf.board_departure(
+        board, "RE 1", "Leinefelde", trip_time(16, 9), 10,
+    )
+    assert trip["delay_reason"] == "Technische Störung am Zug"
+    assert len(trip["delay_reasons"]) == 1
+    assert trip["delay_reasons"][0]["timestamp"] == "123456"
+    assert trip["status"] == "delayed"
