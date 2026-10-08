@@ -43,6 +43,9 @@ cards:
       {% if state_attr(id, 'display_note') %}
       *{{ state_attr(id, 'display_note') }}*
       {% endif %}
+      {% if trips and (trips[0].get('turnaround') or {}).get('risk') %}
+      ⚠️ **Mögliche Folgeverspätung durch die ankommende Vorleistung!** Die aktuell gemeldete eigene Abfahrtszeit berücksichtigt diese rechnerische Warnung möglicherweise noch nicht.
+      {% endif %}
       {% set data_source = state_attr(id, 'source') or '' %}
       {% if 'GTFS' in data_source %}
       *Sollfahrplan: [GTFS Deutschland](https://gtfs.de/de/feeds/de_rv/) · DELFI e.V. · CC BY 4.0*
@@ -55,6 +58,48 @@ cards:
       ⚠️ Angaben möglicherweise veraltet
       {% endif %}
       *Zuginformationen können sich kurzfristig ändern.*
+
+  - type: markdown
+    title: "🔄 Mögliche Vorleistung → Zugwende → Deine Fahrt"
+    content: |
+      {% set id = 'sensor.pendlerzug_naechste_fahrt' %}
+      {% set trips = state_attr(id, 'journeys') or [] %}
+      {% set trip = trips[0] if trips else {} %}
+      {% set turn = trip.get('turnaround') or {} %}
+      {% if not turn.get('incoming_planned') %}
+      Noch keine passende Vorleistung gefunden oder geprüft.
+      {% else %}
+      **1. Ankommender RE 1 · {{ turn.get('incoming_route', 'Vorleistung zum Wendebahnhof') }}**
+
+      {% if turn.get('incoming_departure_planned') %}
+      - **Abfahrt {{ turn.get('incoming_origin_station', 'Ausgangsbahnhof') }}:** {{ as_datetime(turn.get('incoming_departure_planned')).strftime('%H:%M') }} Uhr geplant{% if turn.get('incoming_departure_predicted') %} → {{ as_datetime(turn.get('incoming_departure_predicted')).strftime('%H:%M') }} Uhr prognostiziert{% endif %}{% if turn.get('incoming_departure_delay_minutes') is number %} ({{ '%+d' | format(turn.get('incoming_departure_delay_minutes')) }} Min.){% endif %}
+      {% else %}
+      - Ausgangsabfahrt nicht eindeutig zugeordnet.
+      {% endif %}
+      - **Ankunft {{ turn.get('turnaround_station', 'Wendebahnhof') }}:** {{ as_datetime(turn.get('incoming_planned')).strftime('%H:%M') }} Uhr geplant{% if turn.get('incoming_predicted') %} → {{ as_datetime(turn.get('incoming_predicted')).strftime('%H:%M') }} Uhr prognostiziert{% endif %}{% if turn.get('incoming_delay_minutes') is number %} ({{ '%+d' | format(turn.get('incoming_delay_minutes')) }} Min.){% endif %}
+
+      **2. Zugwende in {{ turn.get('turnaround_station', 'Wendebahnhof') }}**
+
+      {% if turn.get('turnaround_buffer_minutes') is number %}
+      {% if turn.get('risk') %}
+      ⚠️ **Nur {{ turn.get('turnaround_buffer_minutes') }} Minuten rechnerische Wendezeit**, statt der angenommenen {{ turn.get('minimum_turnaround_minutes', '–') }} Minuten.
+      {% else %}
+      {{ turn.get('turnaround_buffer_minutes') }} Minuten rechnerische Wendezeit.
+      {% endif %}
+      {% else %}
+      Wendezeit derzeit nicht berechenbar.
+      {% endif %}
+
+      **3. Deine Fahrt · {{ turn.get('outgoing_route', 'Abfahrt am Wendebahnhof') }}**
+
+      - **Sollabfahrt:** {{ (trip.get('scheduled_departure') or '')[11:16] }} Uhr.
+      - **Gemeldete Abfahrt:** {{ (trip.get('predicted_departure') or '')[11:16] or 'noch unbekannt' }} Uhr.
+      {% if turn.get('risk') and turn.get('earliest_plausible_outgoing') %}
+      - **Rechnerisch frühestens:** {{ as_datetime(turn.get('earliest_plausible_outgoing')).strftime('%H:%M') }} Uhr – *nur falls tatsächlich derselbe Zug eingesetzt und der Mindest-Wendepuffer benötigt wird*.
+      {% endif %}
+
+      *Zuordnung: {{ 'Zwei Bahnhofsmeldungen zeitlich abgeglichen' if turn.get('incoming_departure_match') == 'plausible' else 'Ankommender Zug derselben Linie gefunden' }}. Die eingesetzte Fahrzeuggarnitur ist nicht bestätigt.*
+      {% endif %}
 
   - type: grid
     columns: 3
@@ -104,12 +149,12 @@ cards:
 
       *Die Strecke wird ganztägig überwacht. Die Werte sind kein Beweis für eine spätere Verspätung.*
 
-      **Meine Richtung:** {{ same.get('count', 0) }} frühere Soll-/Prognosezeiten, {{ same.get('delayed_count', 0) }} mit Verspätung
+      **{{ same.get('label', 'Konfigurierte Fahrtrichtung') }}:** {{ same.get('count', 0) }} frühere Soll-/Prognosezeiten, {{ same.get('delayed_count', 0) }} mit Verspätung
 
-      **Gegenrichtung:** {{ rev.get('count', 0) }} frühere Soll-/Prognosezeiten, {{ rev.get('delayed_count', 0) }} mit Verspätung
+      **{{ rev.get('label', 'Entgegengesetzte Fahrtrichtung') }}:** {{ rev.get('count', 0) }} frühere Soll-/Prognosezeiten, {{ rev.get('delayed_count', 0) }} mit Verspätung
 
       {% if same.get('trains') %}
-      **↗ Meine Richtung · Soll- und Prognosezeit vergangen**
+      **{{ same.get('label', 'Konfigurierte Fahrtrichtung') }} · Soll- und Prognosezeit vergangen**
 
       | Zug | Abfahrt | Verspätung |
       |:---|:---|---:|
@@ -119,7 +164,7 @@ cards:
       {% endif %}
 
       {% if rev.get('trains') %}
-      **↙ Gegenrichtung · Soll- und Prognosezeit vergangen**
+      **{{ rev.get('label', 'Entgegengesetzte Fahrtrichtung') }} · Soll- und Prognosezeit vergangen**
 
       | Zug | Abfahrt | Verspätung |
       |:---|:---|---:|
@@ -134,10 +179,10 @@ cards:
       | Richtung | Linie | Soll | Meldung |
       |:---|:---|:---|---:|
       {% for t in same.get('current_departures', []) %}
-      | Meine | {{ t.line }} | {{ as_datetime(t.scheduled_departure).strftime('%H:%M') }} | {{ 'Ausfall' if t.cancelled else ('+' ~ t.delay_minutes ~ ' Min' if t.delay_minutes is number and t.delay_minutes > 0 else (t.delay_minutes ~ ' Min' if t.delay_minutes is number else 'Unbekannt')) }} |
+      | {{ same.get('label', 'Richtung 1') }} | {{ t.line }} | {{ as_datetime(t.scheduled_departure).strftime('%H:%M') }} | {{ 'Ausfall' if t.cancelled else ('+' ~ t.delay_minutes ~ ' Min' if t.delay_minutes is number and t.delay_minutes > 0 else (t.delay_minutes ~ ' Min' if t.delay_minutes is number else 'Unbekannt')) }} |
       {% endfor %}
       {% for t in rev.get('current_departures', []) %}
-      | Gegenrichtung | {{ t.line }} | {{ as_datetime(t.scheduled_departure).strftime('%H:%M') }} | {{ 'Ausfall' if t.cancelled else ('+' ~ t.delay_minutes ~ ' Min' if t.delay_minutes is number and t.delay_minutes > 0 else (t.delay_minutes ~ ' Min' if t.delay_minutes is number else 'Unbekannt')) }} |
+      | {{ rev.get('label', 'Richtung 2') }} | {{ t.line }} | {{ as_datetime(t.scheduled_departure).strftime('%H:%M') }} | {{ 'Ausfall' if t.cancelled else ('+' ~ t.delay_minutes ~ ' Min' if t.delay_minutes is number and t.delay_minutes > 0 else (t.delay_minutes ~ ' Min' if t.delay_minutes is number else 'Unbekannt')) }} |
       {% endfor %}
       {% endif %}
 
