@@ -1,4 +1,4 @@
-# Bahnmonitor – Home Assistant (v0.1.2, Prototyp)
+# Bahnmonitor – Home Assistant (v0.1.3, Prototyp)
 
 Überwacht wiederkehrende Verbindungen (z. B. RE 1 und RE 11 zwischen Leinefelde und Göttingen) bis zu sieben Tage im Voraus. Jede Fahrt wird als eigener GUI-Eintrag angelegt. Für Fahrten ab Göttingen kann eine **mögliche** Folgeverspätung aus einem ankommenden Zug derselben Linie abgeleitet werden. Die physische Fahrzeugdurchbindung wird **nicht** nachgewiesen.
 
@@ -28,6 +28,10 @@ Den Ordner `custom_components/bahnmonitor` nach `/config/custom_components/bahnm
 - Abfahrt im Format `HH:MM`.
 - Vorleistungsprüfung bei Abfahrt ab Göttingen optional aktivieren.
 - Einträge über **Konfigurieren** nachträglich bearbeiten.
+
+## Ausfallsicherheit
+
+Bei HTTP 502/503/504 bzw. einem vorübergehenden Verbindungsproblem bleibt die Integration eingerichtet und lauffähig. Nach einer fehlgeschlagenen Anfrage pausiert sie weitere API-Anfragen und versucht es nach 15, 30, 60 beziehungsweise maximal 120 Minuten erneut. Während einer Störung meldet der Sensor **Fahrplandienst** den Status `unavailable`, die nächste Fahrt **Datenquelle nicht erreichbar**. Vorhandene Daten werden als `stale` gekennzeichnet, und die Binärsensoren für Ausfall und mögliche Folgeverspätung werden nicht als aktuelle Information angeboten. **Diese Änderung repariert nicht den externen 503-Dienst**; echte Zugdaten erscheinen erst wieder, wenn der Anbieter antwortet.
 
 ## Sensoren und Automationen
 
