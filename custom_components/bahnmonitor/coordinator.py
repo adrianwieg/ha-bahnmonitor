@@ -582,7 +582,9 @@ class BahnCoordinator(DataUpdateCoordinator):
         return {
             **info, **result, "candidate_count": 1,
             "observed_incoming_train": inbound.get("observed_train"),
-            "incoming_origin_station": from_station,
+            "incoming_origin_station": (
+                from_station if relation["status"] == "plausible" else None
+            ),
             "incoming_destination_station": to_station,
             "incoming_departure_planned": relation.get("departure_planned"),
             "incoming_departure_predicted": relation.get("departure_predicted"),
@@ -594,7 +596,10 @@ class BahnCoordinator(DataUpdateCoordinator):
             ),
             "incoming_departure_match": relation["status"],
             "incoming_departure_candidate_count": relation.get("count", 0),
-            "incoming_route": f"{from_station} → {to_station}",
+            "incoming_route": (
+                f"{from_station} → {to_station}"
+                if relation["status"] == "plausible" else None
+            ),
             "outgoing_route": f"{to_station} → {from_station}",
             "outgoing_station": to_station,
             "outgoing_destination": from_station,
