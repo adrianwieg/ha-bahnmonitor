@@ -153,3 +153,27 @@ cards:
         name: Mögliche Folgeverspätung
       - entity: sensor.pendlerzug_naechste_fahrt
         name: Abfahrtsstatus
+
+  - type: markdown
+    title: "🗓️ Nächste Fahrtage · Fahrplanabgleich"
+    content: |
+      {% set trips = state_attr('sensor.pendlerzug_naechste_fahrt', 'journeys') or [] %}
+      {% if not trips %}
+      Noch keine Fahrt konfiguriert oder Daten werden geladen.
+      {% else %}
+      | Datum / Sollzeit | Ergebnis |
+      |:--|:--|
+      {% for trip in trips %}
+      | {{ (trip.get('scheduled_departure') or '')[0:16].replace('T', ' ') }} | {% if trip.get('status') == 'scheduled' and 'GTFS' in (trip.get('source') or '') %}🟦 Nur Sollfahrplan{% elif trip.get('status') == 'cancelled' and trip.get('source') %}🔴 Ausfall gemeldet{% elif trip.get('status') == 'delayed' %}🟠 Verspätungsprognose{% elif trip.get('status') == 'on_time' %}🟢 Pünktlich gemeldet{% else %}⚪ Nicht bestätigt{% endif %} |
+      {% endfor %}
+
+      **Fehlende GTFS-Treffer**
+
+      {% for trip in trips %}
+      {% if trip.get('gtfs_match_reason') %}
+      - **{{ trip.get('date') }}:** {{ trip.get('message') or 'Keine passende Sollfahrt gefunden.' }}
+      {% endif %}
+      {% endfor %}
+
+      *Ein fehlender GTFS-Treffer ist kein bestätigter Zugausfall.*
+      {% endif %}
