@@ -55,6 +55,7 @@ class BahnJourneySensor(BahnEntity):
             "retry_at": data.get("retry_at"),
             "last_successful_update": data.get("last_successful_update"),
             "checked_at": data.get("checked_at"),
+            "source": (data.get("journeys") or [{}])[0].get("source"),
             "origin": self.coordinator.settings["origin"],
             "destination": self.coordinator.settings["destination"],
         }
