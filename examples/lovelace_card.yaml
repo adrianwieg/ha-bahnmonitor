@@ -43,6 +43,10 @@ cards:
       {% if state_attr(id, 'display_note') %}
       *{{ state_attr(id, 'display_note') }}*
       {% endif %}
+      {% set data_source = state_attr(id, 'source') or '' %}
+      {% if 'GTFS' in data_source %}
+      *Sollfahrplan: [GTFS Deutschland](https://gtfs.de/de/feeds/de_rv/) · DELFI e.V. · CC BY 4.0*
+      {% endif %}
 
       {% if state_attr(id, 'platform_changed') %}
       ⚠️ Gleisänderung erkannt
@@ -91,6 +95,10 @@ cards:
       {% endif %}
 
       {{ summary }}
+
+      **Warum diese Einstufung?**
+
+      {{ state_attr(id, 'reason') or 'Noch keine erklärbaren Zugmeldungen verfügbar.' }}
 
       *Die Strecke wird ganztägig überwacht. Die Werte sind kein Beweis für eine spätere Verspätung.*
 
