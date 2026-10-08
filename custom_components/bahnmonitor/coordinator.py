@@ -9,6 +9,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 
 from .api import BahnApi, BahnApiError
+from .dbf import board_departure, board_incoming
 from .logic import (
     cancellation, delay_minutes, evaluate_turnaround, matches_departure,
     parse_time, select_incoming,
@@ -45,6 +46,7 @@ class BahnCoordinator(DataUpdateCoordinator):
         blocked = self._blocked_until is not None and now < self._blocked_until
         failed = False
         attempted = False
+        live_success = False
         journeys = []
 
         for offset in range(7):
@@ -63,7 +65,23 @@ class BahnCoordinator(DataUpdateCoordinator):
 
             # A single 503 must not cause six additional failing requests
             # during the same update or during the provider backoff interval.
-            if due and not blocked and not failed:
+            fresh = False
+            # DBF provides independent near-term IRIS-TTS predictions.
+            near = -timedelta(minutes=30) <= planned - now <= timedelta(hours=4)
+            if near:
+                try:
+                    dbf = await self._fetch_dbf(planned, window, now)
+                except BahnApiError as exc:
+                    _LOGGER.debug("DBF board unavailable: %s", exc)
+                else:
+                    if dbf is not None:
+                        cached = dbf
+                        fresh = True
+                        live_success = True
+                        self._last_successful_update = now
+                        self._daily_cache[key] = cached
+
+            if due and not fresh and not blocked and not failed:
                 attempted = True
                 try:
                     cached = await self._fetch_trip(planned, window, now)
@@ -84,6 +102,7 @@ class BahnCoordinator(DataUpdateCoordinator):
                     self._last_error = None
                     self._last_successful_update = now
                     self._daily_cache[key] = cached
+                    fresh = True
 
             if cached is None:
                 cached = {
@@ -96,7 +115,7 @@ class BahnCoordinator(DataUpdateCoordinator):
 
             # Never present a previously cached status as fresh during an outage.
             item = dict(cached)
-            item["stale"] = bool(blocked or failed)
+            item["stale"] = bool((blocked or failed) and not fresh)
             journeys.append(item)
 
         self._daily_cache = {
@@ -109,16 +128,46 @@ class BahnCoordinator(DataUpdateCoordinator):
         unavailable = failed or (
             self._blocked_until is not None and now < self._blocked_until
         )
+        provider_status = (
+            "partial" if unavailable and live_success else
+            "unavailable" if unavailable else
+            "online" if self._last_successful_update else "not_checked"
+        )
         return {
             "journeys": journeys,
-            "provider_status": "unavailable" if unavailable else (
-                "online" if self._last_successful_update else "not_checked"
-            ),
+            "provider_status": provider_status,
             "provider_error": self._last_error if unavailable else None,
             "retry_at": self._blocked_until.isoformat() if unavailable and self._blocked_until else None,
             "last_successful_update": self._last_successful_update.isoformat() if self._last_successful_update else None,
             "checked_at": now.isoformat(),
         }
+
+    async def _fetch_dbf(
+        self, planned: datetime, window: int, now: datetime,
+    ) -> dict | None:
+        """Get near-term data from IRIS-TTS, without claiming seven-day coverage."""
+        settings = self.settings
+        board = await self.api.dbf_board(settings["origin_id"], mode="dep")
+        result = board_departure(
+            board, settings["line"], settings["destination"], planned, window,
+        )
+        if result is None:
+            return None
+        if settings.get("turnaround") and "göttingen" in settings["origin"].casefold():
+            max_turn = int(settings["max_turn_minutes"])
+            try:
+                arrivals = await self.api.dbf_board(settings["origin_id"], mode="arr")
+            except BahnApiError:
+                result["turnaround"] = {
+                    "status": "unknown", "risk": False,
+                    "reason": "Ankunftstafel aktuell nicht abrufbar",
+                }
+            else:
+                incoming = board_incoming(arrivals, settings["line"], planned, max_turn)
+                result["turnaround"] = evaluate_turnaround(
+                    incoming, planned, int(settings["min_turn_minutes"]),
+                )
+        return result
 
     async def _fetch_trip(self, planned: datetime, window: int, now: datetime) -> dict:
         settings = self.settings
@@ -184,6 +233,7 @@ class BahnCoordinator(DataUpdateCoordinator):
         )
         result = {
             "date": planned.date().isoformat(),
+            "source": "db.transport.rest",
             "line": (dep.get("line") or {}).get("name"),
             "status": status,
             "scheduled_departure": effective_planned.isoformat(),
