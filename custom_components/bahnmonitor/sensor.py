@@ -78,14 +78,23 @@ class BahnJourneySensor(BahnEntity):
                 "Die angezeigte Abfahrtszeit ist nur konfiguriert."
             )
         else:
+            static_plan = bool(
+                trip and str(trip.get("source", "")).startswith("GTFS")
+            )
             result["display_note"] = (
-                "Aktuelle Angabe stammt vom Fahrplandienst."
+                "Nur Sollfahrplan aus GTFS Deutschland – keine Echtzeitbestätigung."
+                if static_plan and not trip.get("stale")
+                else "Aktuelle Zugmeldung des Fahrplandienstes."
                 if trip and trip.get("source") and not trip.get("stale")
                 else "Daten derzeit nicht verifiziert."
             )
         result["configured_departure_time"] = self.coordinator.settings.get("departure_time")
         result["realtime_starts_at"] = start
         result["timetable_confirmed"] = bool(trip and trip.get("source"))
+        result["realtime_checked"] = bool(
+            trip and not trip.get("stale")
+            and trip.get("source") in ("DBF/IRIS-TTS", "db.transport.rest")
+        )
         return result
 
     @property
