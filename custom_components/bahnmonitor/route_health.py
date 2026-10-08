@@ -51,6 +51,10 @@ def _normalise_entry(
         "line": line,
         "train": item.get("train"),
         "scheduled_departure": when.isoformat(),
+        "predicted_departure": (
+            (when + timedelta(minutes=delay)).isoformat()
+            if delay is not None else None
+        ),
         "delay_minutes": delay,
         "cancelled": cancelled,
         "observed_at": now.isoformat(),
@@ -174,21 +178,46 @@ def summarise(
             continue
         upcoming_unique[observation_key(item)] = item
 
+    # Scheduled time being in the past is NOT proof of departure.
+    # If a train was due at 08:43 with +45 min, at 08:44 it is still
+    # predicted for 09:28. Keep it in "awaiting departure", not history.
+    awaiting = {}
+    for key, row in list(latest.items()):
+        delay = row.get("delay_minutes")
+        if row.get("cancelled") or isinstance(delay, bool) or not isinstance(delay, (int, float)):
+            continue
+        planned_when = datetime.fromisoformat(row["scheduled_departure"])
+        predicted = planned_when + timedelta(minutes=delay)
+        if predicted > now:
+            pending = dict(row)
+            pending["predicted_departure"] = predicted.isoformat()
+            pending["observation_type"] = "awaiting_departure"
+            awaiting[key] = pending
+            del latest[key]
+
     directions = {}
     selected = []
     upcoming_rows = []
+    overdue_rows = []
     for direction in ("same", "reverse"):
         previous_rows = sorted(
             (row for row in latest.values() if row["direction"] == direction),
             key=lambda row: row["scheduled_departure"],
             reverse=True,
         )[:limit]
-        current_rows = sorted(
+        pending_rows = sorted(
+            (row for row in awaiting.values() if row["direction"] == direction),
+            key=lambda row: row["scheduled_departure"],
+            reverse=True,
+        )[:limit]
+        future_rows = sorted(
             (row for row in upcoming_unique.values() if row["direction"] == direction),
             key=lambda row: row["scheduled_departure"],
         )[:limit]
+        current_rows = pending_rows + future_rows
         selected.extend(previous_rows)
         upcoming_rows.extend(current_rows)
+        overdue_rows.extend(pending_rows)
         valid = [
             row["delay_minutes"] for row in previous_rows
             if row.get("delay_minutes") is not None and not row["cancelled"]
@@ -199,6 +228,7 @@ def summarise(
             "cancelled_count": sum(bool(row["cancelled"]) for row in previous_rows),
             "avg_delay_minutes": round(mean(valid), 1) if valid else None,
             "trains": previous_rows,
+            "awaiting_departures": pending_rows,
             "current_departures": current_rows,
         }
 
@@ -234,8 +264,10 @@ def summarise(
         description = "Bisher keine auswertbaren RE-1-/RE-11-Meldungen von heute."
     else:
         description = (
-            f"Heute: {sample} frühere Fahrten und {len(upcoming_rows)} aktuelle "
-            f"Abfahrtsprognosen berücksichtigt; {delayed} verspätet, {cancelled} ausgefallen."
+            f"Heute: {sample} Sollabfahrten mit vergangener Prognosezeit, "
+            f"{len(overdue_rows)} trotz verstrichener Sollzeit noch erwartete Züge "
+            f"und {len(upcoming_rows) - len(overdue_rows)} bevorstehende Sollabfahrten "
+            f"berücksichtigt; {delayed} verspätet, {cancelled} ausgefallen."
         )
         if sample < 2:
             description += " Datenlage begrenzt."
@@ -258,7 +290,15 @@ def summarise(
             "Hinrichtung" if row["direction"] == "same"
             else "Gegenrichtung"
         )
-        observation_label = "Abfahrtsprognose" if row in upcoming_rows else "frühere Fahrt"
+        if row.get("observation_type") == "awaiting_departure":
+            predicted = datetime.fromisoformat(
+                row["predicted_departure"]
+            ).strftime("%H:%M")
+            observation_label = f"Sollzeit vorbei, Prognose {predicted}"
+        elif row in upcoming_rows:
+            observation_label = "bevorstehende Abfahrtsprognose"
+        else:
+            observation_label = "Sollzeit und Prognosezeit vergangen"
         situation = (
             "Ausfall gemeldet" if row["cancelled"]
             else f"+{row['delay_minutes']} Min gemeldet"
@@ -282,6 +322,8 @@ def summarise(
         "summary": description,
         "sample_count": sample,
         "current_count": len(upcoming_rows),
+        "awaiting_count": len(overdue_rows),
+        "upcoming_scheduled_count": len(upcoming_rows) - len(overdue_rows),
         "delayed_count": delayed,
         "cancelled_count": cancelled,
         "average_delay_minutes": round(mean(previous_delays), 1) if previous_delays else None,
