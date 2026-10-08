@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from statistics import mean
 
-from .dbf import clock_on_day, goes_to_destination, matches_line
+from .dbf import clock_on_day, goes_to_destination, matches_line, delay_messages
 
 LINES = ("RE 1", "RE 11")
 MAX_PREVIOUS = 3
@@ -44,6 +44,7 @@ def _normalise_entry(
         else None
     )
     cancelled = bool(item.get("isCancelled"))
+    causes = delay_messages(item)
     return {
         "direction": direction,
         "origin": origin,
@@ -56,6 +57,8 @@ def _normalise_entry(
             if delay is not None else None
         ),
         "delay_minutes": delay,
+        "delay_reasons": causes,
+        "delay_reason": causes[0]["text"] if causes else None,
         "cancelled": cancelled,
         "observed_at": now.isoformat(),
         "source": "DBF/IRIS-TTS",
@@ -311,6 +314,9 @@ def summarise(
             "Ausfall gemeldet" if row["cancelled"]
             else f"+{row['delay_minutes']} Min gemeldet"
         )
+        delay_reason = row.get("delay_reason")
+        if isinstance(delay_reason, str) and delay_reason.strip():
+            situation += f"; gemeldeter Grund: {delay_reason}"
         reasons.append(
             f"{ts} {row['line']} ({route}, {observation_label}): {situation}"
         )
@@ -334,6 +340,11 @@ def summarise(
         "awaiting_count": len(overdue_rows),
         "upcoming_scheduled_count": len(upcoming_rows) - len(overdue_rows),
         "delayed_count": delayed,
+        "published_delay_reason_count": sum(
+            bool(row.get("delay_reasons")) for row in all_relevant
+            if row.get("delay_minutes") is not None
+            and row.get("delay_minutes") >= 3
+        ),
         "cancelled_count": cancelled,
         "average_delay_minutes": round(mean(previous_delays), 1) if previous_delays else None,
         "previous_delayed_count": sum(
