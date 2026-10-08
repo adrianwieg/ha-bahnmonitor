@@ -63,18 +63,38 @@ def matches_line(train: str | None, line: str) -> bool:
 
 def board_departure(entries: list[dict], line: str, destination: str, planned: datetime, tolerance: int) -> dict | None:
     matches = []
+    inferred = []
     for entry in entries:
-        if not isinstance(entry, dict) or not matches_line(entry.get("train"), line):
-            continue
-        if not goes_to_destination(entry, destination):
+        if not isinstance(entry, dict) or not goes_to_destination(entry, destination):
             continue
         scheduled = clock_on_day(entry.get("scheduledDeparture"), planned)
-        if scheduled is None or abs((scheduled - planned).total_seconds()) > tolerance * 60:
+        if scheduled is None:
             continue
-        matches.append((abs((scheduled - planned).total_seconds()), scheduled, entry))
-    if not matches:
+        distance = abs((scheduled - planned).total_seconds())
+        if distance > tolerance * 60:
+            continue
+
+        line_name = entry.get("line") if isinstance(entry.get("line"), str) else entry.get("train")
+        if matches_line(line_name, line):
+            matches.append((distance, scheduled, entry))
+        elif (
+            # The IRIS board often displays a train run number such as
+            # "RE 16243" instead of the passenger-facing line "RE 1".
+            # Only use the timetable/destination heuristic for one
+            # uniquely close regional service. Never assert line identity.
+            norm(str(entry.get("train") or "")).startswith("re")
+            and distance <= min(tolerance, 7) * 60
+        ):
+            inferred.append((distance, scheduled, entry))
+
+    if matches:
+        _, scheduled, entry = min(matches, key=lambda x: x[0])
+        confidence = "exact"
+    elif len(inferred) == 1:
+        _, scheduled, entry = inferred[0]
+        confidence = "time_destination_unconfirmed"
+    else:
         return None
-    _, scheduled, entry = min(matches, key=lambda x: x[0])
     delay = entry.get("delayDeparture")
     if isinstance(delay, bool) or not isinstance(delay, (int, float)):
         delay = None
@@ -85,7 +105,9 @@ def board_departure(entries: list[dict], line: str, destination: str, planned: d
     return {
         "date": planned.date().isoformat(),
         "source": "DBF/IRIS-TTS",
-        "line": entry.get("train"),
+        "line": line if confidence == "exact" else None,
+        "observed_train": entry.get("train"),
+        "line_match": confidence,
         "status": "cancelled" if cancelled else "delayed" if delay is not None and delay >= 3 else "on_time" if delay is not None else "scheduled",
         "scheduled_departure": scheduled.isoformat(),
         "predicted_departure": actual.isoformat() if actual else None,
