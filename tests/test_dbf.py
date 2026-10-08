@@ -121,3 +121,30 @@ def test_iris_incoming_prefix():
     incoming = dbf.board_incoming(board, "RE1", trip_time(7, 18), 30)
     assert incoming["plannedWhen"] == "2026-10-08T07:05:00+02:00"
     assert incoming["when"] == "2026-10-08T07:14:00+02:00"
+
+
+
+def test_multiple_incoming_services_are_not_unique_vehicle_evidence():
+    board = [
+        {"train": "RE RE1", "scheduledArrival": "16:00", "delayArrival": 4},
+        {"train": "RE RE1", "scheduledArrival": "15:48", "delayArrival": 12},
+        {"train": "RE RE11", "scheduledArrival": "15:52", "delayArrival": 7},
+    ]
+    result = dbf.incoming_candidates(
+        board, "RE 1", trip_time(16, 9), 30
+    )
+    assert len(result) == 2
+    assert all(item["line"]["name"] == "RE 1" for item in result)
+    assert result[0]["plannedWhen"].endswith("16:00:00+02:00")
+
+
+def test_single_incoming_candidate_does_not_prove_vehicle_link():
+    board = [
+        {"train": "RE RE11", "scheduledArrival": "15:52", "delayArrival": 7},
+    ]
+    result = dbf.incoming_candidates(
+        board, "RE 11", trip_time(16, 9), 30
+    )
+    assert len(result) == 1
+    assert result[0]["delay"] == 420
+    assert result[0]["observed_train"] == "RE RE11"
