@@ -13,7 +13,7 @@ from .dbf import board_departure, incoming_candidates
 from .route_health import collect_previous, collect_upcoming, observation_key, summarise
 from .logic import (
     cancellation, delay_minutes, evaluate_turnaround, matches_departure,
-    parse_time, select_incoming,
+    parse_time,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -521,25 +521,30 @@ class BahnCoordinator(DataUpdateCoordinator):
                 if isinstance(last_stop.get("arrivalDelay"), (int, float)) else None
             ),
             "trip_id": dep.get("tripId"),
-            "turnaround": {"status": "not_checked", "risk": False},
+            "turnaround": self._turnaround_state(),
         }
 
-        if (
-            settings.get("turnaround")
-            and "göttingen" in settings["origin"].casefold()
-            and now - timedelta(hours=1) <= planned <= now + timedelta(hours=18)
-        ):
-            max_turn = int(settings["max_turn_minutes"])
-            arrivals = await self.api.arrivals(
-                settings["origin_id"],
-                effective_planned - timedelta(minutes=max_turn),
-                max_turn + 1,
+        if now - timedelta(minutes=30) <= planned <= now + timedelta(hours=4):
+            result["turnaround"] = await self._check_dbf_turnaround(
+                effective_planned, settings["line"],
             )
-            incoming = select_incoming(
-                arrivals, settings["line"], effective_planned, max_turn,
-            )
-            result["turnaround"] = evaluate_turnaround(
-                incoming, effective_planned, int(settings["min_turn_minutes"]),
-            )
+        elif self._turnaround_choice() == "origin":
+            result["turnaround"] = {
+                **self._turnaround_state(),
+                "status": "not_checked",
+                "reason": "Vorleistungsprüfung frühestens vier Stunden vor Abfahrt",
+            }
+        elif self._turnaround_choice() == "destination":
+            result["turnaround"] = {
+                **self._turnaround_state(),
+                "status": "not_applicable",
+                "reason": "Wende am Zielbahnhof hat keinen bestätigten Einfluss auf diese Abfahrt",
+            }
+        else:
+            result["turnaround"] = {
+                **self._turnaround_state(),
+                "status": "disabled",
+                "reason": "Vorleistungsprüfung deaktiviert",
+            }
         return result
 
