@@ -75,6 +75,9 @@ class Provider:
             raise self.error("HTTP 503 Service Unavailable")
         return []
 
+    async def dbf_board(self, station, mode="dep"):
+        raise self.error("DBF temporarily unreachable")
+
 
 def test_503_keeps_entry_loaded_and_throttles_requests(monkeypatch):
     code, api_error = load_coordinator(monkeypatch)
@@ -94,9 +97,8 @@ def test_503_keeps_entry_loaded_and_throttles_requests(monkeypatch):
 
     first = asyncio.run(coordinator._async_update_data())
     assert first["provider_status"] == "unavailable"
-    assert first["route_health"]["status_code"] == "scheduled_monitoring"
-    assert first["route_health"]["status"] == "Startet um 08:00"
-    assert first["route_health"]["monitoring_starts_at"] == "2026-10-08T08:00:00+02:00"
+    assert first["route_health"]["status_code"] == "source_unavailable"
+    assert first["route_health"]["source_status"] == "unavailable"
     assert first["diagnostics"]["realtime_dbf"]["status"] == "skipped"
     assert first["diagnostics"]["realtime_dbf"]["reason"] == "outside_realtime_window"
     assert first["diagnostics"]["future_timetable"]["status"] == "backoff"
@@ -173,34 +175,57 @@ def test_iris_data_remains_fresh_during_v6_outage(monkeypatch):
 
 
 
-def test_1609_realtime_starts_at_1209_not_error(monkeypatch):
-    """Reproduce Home Assistant diagnostics for a 16:09 outbound at 07:52."""
+def test_1609_route_watched_already_at_0752(monkeypatch):
+    """A 16:09 configured journey does not block early-day corridor checks."""
     code, api_error = load_coordinator(monkeypatch)
-    original_now = sys.modules["homeassistant.util.dt"].now
-    sys.modules["homeassistant.util.dt"].now = lambda: datetime(
+    clock = sys.modules["homeassistant.util.dt"]
+    original_now = clock.now
+    clock.now = lambda: datetime(
         2026, 10, 8, 7, 52, tzinfo=ZoneInfo("Europe/Berlin")
     )
+
+    class BoardProvider(Provider):
+        def __init__(self, error):
+            super().__init__(error)
+            self.stations = []
+
+        async def dbf_board(self, station, mode="dep"):
+            self.stations.append(station)
+            if station == "8000128":
+                return [
+                    {"train": "RE RE1", "destination": "Leinefelde",
+                     "scheduledDeparture": "07:20", "delayDeparture": 9},
+                    {"train": "RE RE11", "destination": "Leinefelde",
+                     "scheduledDeparture": "08:05", "delayDeparture": 7},
+                ]
+            return [
+                {"train": "RE RE11", "destination": "Göttingen",
+                 "scheduledDeparture": "07:10", "delayDeparture": 4},
+            ]
+
     try:
-        api = Provider(api_error)
+        api = BoardProvider(api_error)
         settings = {
             "departure_time": "16:09",
             "weekdays": "1,2,3",
             "window": 20,
-            "origin_id": "8000128",
-            "destination_id": "8010203",
-            "origin": "Göttingen",
-            "destination": "Leinefelde",
-            "line": "RE 1",
-            "turnaround": True,
+            "origin_id": "8000128", "destination_id": "8010203",
+            "origin": "Göttingen", "destination": "Leinefelde",
+            "line": "RE 1", "turnaround": True,
         }
         coordinator = code.BahnCoordinator(None, api, settings, "1609")
         data = asyncio.run(coordinator._async_update_data())
         assert api.calls == 1
-        assert data["provider_status"] == "unavailable"
+        assert data["provider_status"] == "partial"
         assert data["journeys"][0]["scheduled_departure"] == "2026-10-08T16:09:00+02:00"
-        assert data["route_health"]["status"] == "Startet um 12:09"
-        assert data["route_health"]["monitoring_starts_at"] == "2026-10-08T12:09:00+02:00"
-        assert data["route_health"]["source_status"] == "not_started"
-        assert data["route_health"]["sample_count"] == 0
+        assert data["diagnostics"]["realtime_dbf"]["status"] == "skipped"
+        assert data["route_health"]["monitoring_active"] is True
+        assert data["route_health"]["source_status"] == "online"
+        assert data["route_health"]["status"] == "Auffällig"
+        assert data["route_health"]["sample_count"] == 2
+        assert data["route_health"]["current_count"] == 1
+        assert data["route_health"]["same_direction"]["count"] == 1
+        assert data["route_health"]["reverse_direction"]["count"] == 1
+        assert api.stations == ["8000128", "8010203"]
     finally:
-        sys.modules["homeassistant.util.dt"].now = original_now
+        clock.now = original_now
