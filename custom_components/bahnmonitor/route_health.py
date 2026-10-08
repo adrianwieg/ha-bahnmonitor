@@ -241,6 +241,38 @@ def summarise(
             description += " Datenlage begrenzt."
         description += " Keine gesicherte Prognose für deine eigene Zugfahrt."
 
+    # Explicitly disclose WHY the indicator is elevated. Separate earlier
+    # trains from short-term predictions, to avoid misrepresenting a future
+    # scheduled departure as an already observed delay.
+    reasons = []
+    trigger_trains = sorted(
+        [row for row in all_relevant
+         if row.get("cancelled")
+         or (isinstance(row.get("delay_minutes"), (int, float))
+             and row["delay_minutes"] >= 3)],
+        key=lambda row: row["scheduled_departure"],
+    )
+    for row in trigger_trains:
+        ts = datetime.fromisoformat(row["scheduled_departure"]).strftime("%H:%M")
+        route = (
+            "Hinrichtung" if row["direction"] == "same"
+            else "Gegenrichtung"
+        )
+        label = "Abfahrtsprognose" if row in upcoming_rows else "frühere Fahrt"
+        situation = (
+            "Ausfall gemeldet" if row["cancelled"]
+            else f"+{row['delay_minutes']} Min gemeldet"
+        )
+        reasons.append(
+            f"{ts} {row['line']} ({route}, {label}): {situation}"
+        )
+    if reasons:
+        cause = "; ".join(reasons[:6])
+    elif all_relevant:
+        cause = "Keine Verspätung ab 3 Minuten und kein Ausfall in den erfassten Meldungen."
+    else:
+        cause = "Noch keine auswertbaren Meldungen vorhanden."
+
     last_seen = max(
         (row.get("observed_at", "") for row in latest.values()), default=None,
     )
@@ -253,6 +285,19 @@ def summarise(
         "delayed_count": delayed,
         "cancelled_count": cancelled,
         "average_delay_minutes": round(mean(previous_delays), 1) if previous_delays else None,
+        "previous_delayed_count": sum(
+            row.get("delay_minutes") is not None
+            and row["delay_minutes"] >= 3 and not row["cancelled"]
+            for row in selected
+        ),
+        "forecast_delayed_count": sum(
+            row.get("delay_minutes") is not None
+            and row["delay_minutes"] >= 3 and not row["cancelled"]
+            for row in upcoming_rows
+        ),
+        "maximum_delay_minutes": max(previous_delays, default=None),
+        "reason": cause,
+        "trigger_reasons": reasons[:6],
         "same_direction": directions["same"],
         "reverse_direction": directions["reverse"],
         "window_start": day_start.isoformat(),
