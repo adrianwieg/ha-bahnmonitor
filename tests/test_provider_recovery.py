@@ -94,6 +94,9 @@ def test_503_keeps_entry_loaded_and_throttles_requests(monkeypatch):
 
     first = asyncio.run(coordinator._async_update_data())
     assert first["provider_status"] == "unavailable"
+    assert first["diagnostics"]["realtime_dbf"]["status"] == "skipped"
+    assert first["diagnostics"]["realtime_dbf"]["reason"] == "outside_realtime_window"
+    assert first["diagnostics"]["future_timetable"]["status"] == "backoff"
     assert first["provider_error"] and "503" in first["provider_error"]
     assert api.calls == 1
     assert first["retry_at"] is not None
@@ -156,6 +159,9 @@ def test_iris_data_remains_fresh_during_v6_outage(monkeypatch):
     assert api.v6_calls == 1, "Avoid retrying a failing backend for every future day"
     assert result["journeys"][0]["status"] == "delayed"
     assert result["journeys"][0]["source"] == "DBF/IRIS-TTS"
+    assert result["diagnostics"]["realtime_dbf"]["status"] == "matched"
+    assert result["diagnostics"]["realtime_dbf"]["returned_count"] == 1
+    assert result["diagnostics"]["future_timetable"]["status"] == "backoff"
     assert result["journeys"][0]["stale"] is False
     assert result["journeys"][0]["line_match"] == "time_destination_unconfirmed"
     assert all(item["status"] == "unknown" for item in result["journeys"][1:])
