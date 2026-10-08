@@ -33,6 +33,9 @@ class BahnCoordinator(DataUpdateCoordinator):
         self.api = api
         self.gtfs = None  # Shared daily static regional rail timetable, if enabled.
         self._gtfs_error: str | None = None
+        # Only the very first HA setup refresh is local. Slow downloads run
+        # after entities are registered via a config-entry background task.
+        self._startup_lightweight = False
         self.settings = settings
         self._daily_cache: dict[str, dict] = {}
         self._last_full_check: datetime | None = None
@@ -48,8 +51,59 @@ class BahnCoordinator(DataUpdateCoordinator):
             "reason": "No departure in realtime window has been checked yet",
         }
 
+    def _startup_snapshot(self, now: datetime) -> dict:
+        """Provide usable HA entities without network I/O during setup."""
+        hour, minute = (int(x) for x in self.settings["departure_time"].split(":")[:2])
+        weekdays = {int(x.strip()) for x in self.settings["weekdays"].split(",")}
+        journeys = []
+        for offset in range(7):
+            day = now.date() + timedelta(days=offset)
+            if day.weekday() not in weekdays:
+                continue
+            planned = datetime(
+                day.year, day.month, day.day, hour, minute, tzinfo=TZ,
+            )
+            if planned >= now - timedelta(hours=2):
+                journeys.append({
+                    "date": day.isoformat(),
+                    "status": "unknown",
+                    "scheduled_departure": planned.isoformat(),
+                    "message": "Fahrplandaten werden im Hintergrund geladen",
+                    "stale": True,
+                })
+        empty = {
+            "count": 0, "delayed_count": 0, "cancelled_count": 0,
+            "avg_delay_minutes": None, "trains": [],
+            "current_departures": [], "awaiting_departures": [],
+        }
+        return {
+            "journeys": journeys,
+            "provider_status": "not_checked",
+            "provider_error": None,
+            "retry_at": None,
+            "last_successful_update": None,
+            "checked_at": now.isoformat(),
+            "route_health": {
+                "status_code": "loading",
+                "status": "Wird geladen",
+                "summary": "Streckenlage wird im Hintergrund aktualisiert.",
+                "source_status": "loading",
+                "sample_count": 0,
+                "same_direction": dict(empty),
+                "reverse_direction": dict(empty),
+            },
+            "diagnostics": {
+                "setup_mode": "non_blocking_initial_snapshot",
+                "future_timetable": {"status": "loading"},
+                "gtfs_schedule": {"status": "loading"},
+                "realtime_dbf": {"status": "not_checked"},
+            },
+        }
+
     async def _async_update_data(self) -> dict:
         now = dt_util.now().astimezone(TZ)
+        if self._startup_lightweight:
+            return self._startup_snapshot(now)
         hour, minute = (int(x) for x in self.settings["departure_time"].split(":")[:2])
         weekdays = {int(x.strip()) for x in self.settings["weekdays"].split(",")}
         window = int(self.settings["window"])
