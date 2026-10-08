@@ -1,4 +1,4 @@
-# Bahnmonitor – Home Assistant (v0.1.5, Prototyp)
+# Bahnmonitor – Home Assistant (v0.1.6, Prototyp)
 
 Überwacht wiederkehrende Verbindungen (z. B. RE 1 und RE 11 zwischen Leinefelde und Göttingen) bis zu sieben Tage im Voraus. Jede Fahrt wird als eigener GUI-Eintrag angelegt. Für Fahrten ab Göttingen kann eine **mögliche** Folgeverspätung aus einem ankommenden Zug derselben Linie abgeleitet werden. Die physische Fahrzeugdurchbindung wird **nicht** nachgewiesen.
 
@@ -42,6 +42,12 @@ Den Ordner `custom_components/bahnmonitor` nach `/config/custom_components/bahnm
 ## Ausfallsicherheit
 
 Bei Ausfall der Fern-Fahrplandaten bleibt die Integration geladen; Fahrten mit aktuellen IRIS-Daten bleiben nutzbar. Der Sensor **Fahrplandienst** meldet `partial`, wenn nur ein Teil der sieben Tage abgedeckt ist, und `unavailable`, wenn keine frischen Daten verfügbar sind. Vorhandene Werte werden bei nicht erfolgreicher Aktualisierung als `stale` gekennzeichnet. Binärsensoren werden bei fehlender oder nicht zuordenbarer Datenlage nicht fälschlich als Entwarnung ausgegeben.
+
+## Fehlerbehebung in v0.1.6
+
+IRIS meldet die Linie **RE 1** unter Umständen als `RE RE1` und die Linie **RE 11** als `RE RE11` (Produktklasse plus Linienkennung). Die frühere Erkennung behandelte diesen doppelten Präfix als unbekannte Linie. Ab v0.1.6 erkennt der Parser diese Namen als exakte Linienübereinstimmung und verwechselt RE1 und RE11 nicht. Auch die Prüfung einer möglichen Vorleistung in Göttingen profitiert von der Korrektur.
+
+Dies behebt den in den Home-Assistant-Diagnosedaten vom 08.10.2026 um 07:14 beobachteten Fehler: Die IRIS-Antwort enthielt einen RE RE1 um 07:18 ab Leinefelde nach Göttingen, der nicht zugeordnet wurde. Ein weiterhin auftretender HTTP 503 beim separaten 7-Tage-Anbieter bleibt unabhängig davon bestehen.
 
 ## Debugging und Diagnose ab v0.1.5
 
