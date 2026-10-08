@@ -113,3 +113,49 @@ def test_503_keeps_entry_loaded_and_throttles_requests(monkeypatch):
     assert all(not journey["stale"] for journey in recovered["journeys"])
     assert all(j["status"] == "not_found" for j in recovered["journeys"])
     assert all(j["status"] != "cancelled" for j in recovered["journeys"])
+
+
+def test_iris_data_remains_fresh_during_v6_outage(monkeypatch):
+    code, api_error = load_coordinator(monkeypatch)
+
+    class MixedProvider:
+        def __init__(self):
+            self.dbf_calls = 0
+            self.v6_calls = 0
+
+        async def dbf_board(self, station, mode="dep"):
+            self.dbf_calls += 1
+            return [{
+                "train": "RE 16243",
+                "scheduledDeparture": "07:30",
+                "delayDeparture": 6,
+                "destination": "Göttingen",
+            }]
+
+        async def departures(self, station, start, duration):
+            self.v6_calls += 1
+            raise api_error("HTTP 503 Service Unavailable")
+
+    api = MixedProvider()
+    settings = {
+        "departure_time": "07:30",
+        "weekdays": "0,1,2,3,4,5,6",
+        "window": 15,
+        "origin_id": "8010203",
+        "destination_id": "8000128",
+        "origin": "Leinefelde",
+        "destination": "Göttingen",
+        "line": "RE 1",
+        "turnaround": False,
+    }
+    coordinator = code.BahnCoordinator(None, api, settings, "mixed-entry")
+    result = asyncio.run(coordinator._async_update_data())
+    assert result["provider_status"] == "partial"
+    assert result["provider_error"] and "503" in result["provider_error"]
+    assert api.dbf_calls == 1
+    assert api.v6_calls == 1, "Avoid retrying a failing backend for every future day"
+    assert result["journeys"][0]["status"] == "delayed"
+    assert result["journeys"][0]["source"] == "DBF/IRIS-TTS"
+    assert result["journeys"][0]["stale"] is False
+    assert result["journeys"][0]["line_match"] == "time_destination_unconfirmed"
+    assert all(item["status"] == "unknown" for item in result["journeys"][1:])
