@@ -290,8 +290,13 @@ def summarise(
     for row in trigger_trains:
         ts = datetime.fromisoformat(row["scheduled_departure"]).strftime("%H:%M")
         route = (
-            "Hinrichtung" if row["direction"] == "same"
-            else "Gegenrichtung"
+            f"{row['origin']} → {row['destination']}"
+            if row.get("origin") and row.get("destination")
+            else (
+                "Richtung der konfigurierten Fahrt"
+                if row["direction"] == "same"
+                else "entgegengesetzte Fahrtrichtung"
+            )
         )
         if row.get("observation_type") == "awaiting_departure":
             predicted = datetime.fromisoformat(
