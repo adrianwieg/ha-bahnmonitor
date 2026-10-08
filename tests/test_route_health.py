@@ -206,3 +206,36 @@ def test_route_status_explains_which_trains_caused_warning():
     assert "08:43 RE 1" in data["reason"]
     assert "Abfahrtsprognose" in data["reason"]
     assert len(data["trigger_reasons"]) == 3
+
+
+def test_route_health_state_not_overwritten_by_future_forecast_label():
+    now = at(8, 10)
+    previous = [
+        {
+            "direction": "reverse", "line": "RE 1", "train": "RE RE1",
+            "scheduled_departure": at(7, 18).isoformat(),
+            "delay_minutes": 23, "cancelled": False,
+            "observed_at": now.isoformat(),
+        },
+        {
+            "direction": "same", "line": "RE 1", "train": "RE RE1",
+            "scheduled_departure": at(8, 9).isoformat(),
+            "delay_minutes": 45, "cancelled": False,
+            "observed_at": now.isoformat(),
+        },
+    ]
+    forecast = [{
+        "direction": "reverse", "line": "RE 1", "train": "RE RE1",
+        "scheduled_departure": at(8, 43).isoformat(),
+        "delay_minutes": 45, "cancelled": False,
+        "observed_at": now.isoformat(),
+    }]
+    result = health.summarise(
+        previous, target=at(16, 9), now=now, upcoming=forecast,
+    )
+    assert result["status_code"] == "high"
+    assert result["status"] == "Stark gestört"
+    assert "Abfahrtsprognose" in result["reason"]
+    assert result["previous_delayed_count"] == 2
+    assert result["forecast_delayed_count"] == 1
+    assert result["average_delay_minutes"] == 34
