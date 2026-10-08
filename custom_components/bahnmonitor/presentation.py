@@ -38,10 +38,13 @@ def format_journey(
     stale = bool(trip.get("stale", True))
     exact = trip.get("line_match", "exact") == "exact"
     title = STATUS.get(code, "Unbekannt")
-    if not exact and code not in ("unknown", "not_found"):
+    if stale:
+        title = (
+            "Keine aktuellen Fahrtdaten"
+            if code in ("unknown", "not_found") else "Daten veraltet"
+        )
+    elif not exact and code not in ("unknown", "not_found"):
         title = "Zuordnung unbestätigt"
-    elif stale:
-        title = "Daten veraltet"
 
     planned = hhmm(trip.get("scheduled_departure"))
     predicted = hhmm(trip.get("predicted_departure"))
