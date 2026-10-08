@@ -189,8 +189,10 @@ def match_inbound_origin(
     line: str,
     destination: str,
     arrival: datetime,
+    arrival_delay_minutes: int | None = None,
     min_travel_minutes: int = 20,
     max_travel_minutes: int = 55,
+    delay_tolerance_minutes: int = 10,
 ) -> dict:
     """Corroborate an inbound arrival against the opposite station board.
 
@@ -215,6 +217,13 @@ def match_inbound_origin(
             round(raw_delay) if isinstance(raw_delay, (int, float))
             and not isinstance(raw_delay, bool) else None
         )
+        # The two station boards describe the same proposed service only if
+        # its delays are also reasonably consistent when both are known.
+        if (
+            delay is not None and arrival_delay_minutes is not None
+            and abs(delay - arrival_delay_minutes) > delay_tolerance_minutes
+        ):
+            continue
         matches.append({
             "departure_planned": departure.isoformat(),
             "departure_predicted": (
