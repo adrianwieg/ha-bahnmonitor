@@ -2,7 +2,19 @@
 
 Custom Integration zur Überwachung wiederkehrender Zugfahrten und der Streckenlage. Entwickelt für **RE 1 und RE 11 zwischen Göttingen und Leinefelde**, mit frei konfigurierbaren Start- und Zielbahnhöfen.
 
-**Version 0.3.1 – Prototyp**. Installation über HACS möglich; API- und Fahrplandaten müssen im eigenen Home Assistant praktisch geprüft werden.
+**Version 0.3.2 – Prototyp**. Installation über HACS möglich; API- und Fahrplandaten müssen im eigenen Home Assistant praktisch geprüft werden.
+
+## Präzise Abfahrtsprognosen und 7-Tage-Befund (v0.3.2)
+
+Die Diagnose am 08.10.2026 um 08:44 zeigte RE 1 um 08:09 mit +45 Minuten und um 08:43 mit +45 Minuten. Beide Züge wurden irreführend als frühere Fahrten dargestellt, obwohl die **prognostizierten** Abfahrten erst um 08:54 bzw. 09:28 Uhr lagen. Die neue Streckenlage unterscheidet daher:
+
+- **Soll- und Prognosezeit vergangen:** Beide Uhrzeiten sind überschritten; daraus folgt weiterhin keine bestätigte tatsächliche Abfahrt.
+- **Trotz verstrichener Sollzeit noch erwartet:** Der Zug war planmäßig früher fällig, die aktuell zuletzt bekannte Abfahrtsprognose liegt aber noch in der Zukunft. Die Attribute `awaiting_count`, `same_direction.awaiting_departures` und `reverse_direction.awaiting_departures` zeigen diese Fälle.
+- **Bevorstehende Sollabfahrt:** Der veröffentlichte Soll-Abfahrtszeitpunkt liegt noch in der Zukunft (`upcoming_scheduled_count`).
+
+Alle drei Kategorien können zur Streckenlage beitragen, werden aber in `reason` und `trigger_reasons` unterschiedlich bezeichnet. Der Indikator bleibt **keine Aussage über die tatsächlich erfolgte Abfahrt**.
+
+Die 7-Tage-Auswertung der Diagnose ergab: Donnerstag 08.10. 16:09 Uhr im GTFS-Feed gefunden, Dienstag 13.10. keine passende Direktverbindung, Mittwoch 14.10. nur eine weitere, abweichende Sollabfahrt um 20:09 Uhr. Wir melden diese Tage weiterhin als **unbestätigt**, nicht als Fahrtausfall. Der externe v6-Fahrplandienst meldet HTTP 503; ohne eine zweite verlässliche Quelle kann die Ursache der fehlenden GTFS-Fahrten nicht abschließend geklärt werden.
 
 ## Stabilitätskorrekturen in v0.3.1
 
