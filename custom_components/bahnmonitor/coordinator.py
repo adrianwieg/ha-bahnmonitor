@@ -161,7 +161,7 @@ class BahnCoordinator(DataUpdateCoordinator):
 
             # Never present a previously cached status as fresh during an outage.
             item = dict(cached)
-            item["stale"] = bool((blocked or failed) and not fresh)
+            item["stale"] = bool(cached.get("stale") or ((blocked or failed) and not fresh))
             journeys.append(item)
 
         if not near_eligible:
