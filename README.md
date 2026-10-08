@@ -1,4 +1,4 @@
-# Bahnmonitor – Home Assistant (v0.2.1, Prototyp)
+# Bahnmonitor – Home Assistant (v0.2.2, Prototyp)
 
 Überwacht wiederkehrende Verbindungen (z. B. RE 1 und RE 11 zwischen Leinefelde und Göttingen) bis zu sieben Tage im Voraus. Jede Fahrt wird als eigener GUI-Eintrag angelegt. Für Fahrten ab Göttingen kann eine **mögliche** Folgeverspätung aus einem ankommenden Zug derselben Linie abgeleitet werden. Die physische Fahrzeugdurchbindung wird **nicht** nachgewiesen.
 
@@ -47,11 +47,26 @@ Bei Ausfall der Fern-Fahrplandaten bleibt die Integration geladen; Fahrten mit a
 
 Beispiel: RE 1 Göttingen → Leinefelde um 16:09 Uhr, Überprüfung um 07:52 Uhr.
 
-- Der Sensor **Streckenlage** zeigt `Startet um 12:09`, solange das vierstündige Beobachtungsfenster noch nicht erreicht ist. Der genaue Start steht im Attribut `monitoring_starts_at`.
-- Der Sensor **Nächste Fahrt** zeigt `Echtzeit ab 12:09` und behält die konfigurierte Abfahrt 16:09 bei. Das Attribut `timetable_confirmed: false` macht klar, dass die Uhrzeit **noch nicht aus einer aktuellen Fahrplandatenquelle bestätigt** wurde.
-- Der Sensor **Fahrplandienst** unterscheidet bei v6-Störungen vor dem Echtzeitfenster `7-Tage-Auskunft gestört` von späteren Fehlern beim Abruf aktueller Fahrtdaten.
-- Die Dashboard-Karte beschriftet 16:09 vor einer erfolgreichen Datenabfrage als **konfigurierte Abfahrt** statt als offiziellen Fahrplan und zeigt den Start der Streckenbeobachtung.
-- Der Fahrplandienst `v6.db.transport.rest` liefert weiterhin teilweise HTTP 503. Diese Version **behebt die missverständliche Darstellung**, nicht den externen API-Ausfall. Wenn ab 12:09 keine Daten auftauchen, bitte Diagnose-JSON erneut prüfen.
+- Seit **v0.2.2** läuft die **Streckenlage** ganztägig; die Meldung `Startet um 12:09` aus v0.2.1 entfällt.
+- Der Sensor **Nächste Fahrt** zeigt `Zugprognose ab 12:09` und behält die konfigurierte Abfahrt 16:09 bei. Das Attribut `timetable_confirmed: false` macht klar, dass die Uhrzeit **noch nicht aus einer aktuellen Fahrplandatenquelle bestätigt** wurde.
+- Der Sensor **Fahrplandienst** meldet `Teilweise verfügbar`, wenn IRIS die Streckenlage bereitstellt, aber die 7-Tage-Auskunft gestört ist.
+- Die Dashboard-Karte beschriftet 16:09 vor einer erfolgreichen Datenabfrage als **konfigurierte Abfahrt** statt als offiziellen Fahrplan und zeigt die **ganztägige Streckenlage**.
+- Der Fahrplandienst `v6.db.transport.rest` liefert weiterhin teilweise HTTP 503. Dies beeinträchtigt die kurzfristige IRIS-Streckenlage nicht, sofern IRIS erreichbar ist. Bei fehlenden Daten bitte Diagnose-JSON erneut prüfen.
+
+## Ganztägige Streckenüberwachung (v0.2.2)
+
+Die **Streckenlage ist jetzt sofort aktiv und unabhängig von der Abfahrtszeit deiner eigenen Fahrt**. Auch wenn dein RE 1 erst um 16:09 Uhr fährt, holt die Integration ab dem Start am Morgen die aktuellen RE-1- und RE-11-Abfahrten von **Göttingen und Leinefelde** ab.
+
+- **Abruf alle 10 Minuten** über den bereits vorhandenen, gemeinsamen und rate-limitierten IRIS-Cache. Sowohl deine Richtung als auch die Gegenrichtung werden beobachtet.
+- **Frühere Abfahrten von heute:** Die Integrationsdaten werden im Tagesverlauf gesammelt. Der Sensor enthält jeweils höchstens die **letzten drei geeigneten Züge pro Richtung** und deren gemeldete Verspätung beziehungsweise Ausfall. Sobald neue Züge erfasst werden, rücken die älteren aus der Anzeige.
+- **Aktuelle Abfahrten:** Gemeldete Züge der **nächsten 45 Minuten** sind gesondert unter `current_departures` je Richtung sichtbar. Sie sind Prognosen, keine bestätigten tatsächlichen Abfahrten.
+- **Bewertung:** `Unauffällig`, `Wenig Daten`, `Auffällig`, `Stark gestört` oder `Noch keine Beobachtungen`. Grundlage sind nur gemeldete Verspätungen/Ausfälle, keine pauschalen Annahmen über deinen eigenen Zug.
+- **Tageshistorie persistent:** Beobachtungen werden verzögert in Home Assistants interner Integration-Storage-Datei gespeichert und beim Neustart wieder geladen. Die Auswertung berücksichtigt **nur den aktuellen Kalendertag**; Daten vom Vortag werden ausgeschlossen.
+- **Unvollständige Daten:** Werden eine oder beide Stationstafeln nicht aktualisiert, wird die Abdeckung gekennzeichnet. Bei vollständigem Ausfall erscheint statt einer vermeintlich aktuellen Bewertung `Datenquelle gestört` beziehungsweise `Daten veraltet`.
+- **Abdeckung:** Die externen Bahnhofstafeln liefern nur eine begrenzte Rückschau. Züge aus Zeiten, in denen Home Assistant noch nicht lief bzw. keine Daten erhalten hat, lassen sich nicht nachträglich vollständig rekonstruieren.
+- **Eigener Zug:** Die separate, zugbezogene Echtzeitprüfung beginnt weiterhin **vier Stunden vor deiner konfigurierten Fahrt**. Die Streckenlage läuft unabhängig davon bereits vorher.
+
+Die Streckenlage ist ein **Indikator über heutige Beobachtungen**, nicht die Prognose einer verbindlich feststehenden Folgeverspätung. Insbesondere beweist eine Verspätung des RE 11 nicht, dass der RE 1 um 16:09 Uhr verspätet sein wird.
 
 ## Neue Funktionen in v0.2.0
 
@@ -61,13 +76,13 @@ Der Sensor **Nächste Fahrt** zeigt nun deutschsprachige Zustände wie `Verspät
 
 ### Streckenlage – bis zu drei frühere Züge pro Richtung
 
-Ein zusätzlicher Sensor **Streckenlage** wertet die letzten erfassten **RE 1/RE 11** auf der konfigurierten Strecke und in der Gegenrichtung aus. Beispiel für eine Verbindung **16:09 Göttingen → Leinefelde**: Ab etwa 12:09 Uhr werden fahrplanmäßig bereits vergangene Abfahrten auf beiden Richtungen beobachtet; angezeigt werden Zuglinie, Sollabfahrt, Verspätung und ggf. ein gemeldeter Ausfall.
+Der Sensor **Streckenlage** wertet die letzten erfassten **RE 1/RE 11** auf der konfigurierten Strecke und in der Gegenrichtung aus. Seit v0.2.2 gilt die ganztägige Überwachung aus dem Abschnitt oben, auch vor 12:09 Uhr für die 16:09-Uhr-Fahrt.
 
-- Die Datenquelle **DBF/IRIS-TTS** liefert vergangene Zugabfahrten nur in einem **begrenzten Fenster von etwa 60 Minuten** (Option `past=1`), deshalb wird bei jedem Abruf eine Liste in Home Assistant **im Arbeitsspeicher** fortgeführt. Sie bleibt auf maximal vier Stunden vor der eigenen Abfahrt begrenzt.
+- Die Datenquelle **DBF/IRIS-TTS** liefert vergangene Zugabfahrten nur in einem **begrenzten Fenster von etwa 60 Minuten** (Option `past=1`), deshalb wird bei jedem Abruf eine Liste in Home Assistant **im Arbeitsspeicher** fortgeführt. Die Sammlung bleibt auf den aktuellen Kalendertag begrenzt.
 - Pro Richtung zählen **höchstens drei verschiedene Züge**. Es werden nur genau zugeordnete RE 1 oder RE 11 und eine durch Ziel/Unterwegshalte nachweisbare Strecke berücksichtigt.
 - **Keine Daten:** kein verwertbarer früherer Zug erfasst. **Wenig Daten:** nur einer. **Unauffällig:** mindestens zwei, ohne Verspätung ab 3 Minuten. **Auffällig:** mindestens ein Zug mit 3 oder mehr Minuten Verspätung. **Stark gestört:** mindestens ein gemeldeter Ausfall oder mindestens zwei Züge mit jeweils 10 oder mehr Minuten Verspätung.
 - Die Einordnung ist **kein Verspätungsversprechen** für die eigene Fahrt. Eine planmäßig vergangene Abfahrt kann trotz Prognose noch unterwegs sein; die Daten belegen keine tatsächliche Fahrzeugdurchbindung. Bei unvollständigen oder fehlenden Daten wird keine Entwarnung behauptet.
-- **Nach einem Home-Assistant-Neustart ist die Tageshistorie leer**, weil sie in der aktuellen Version nicht persistent gespeichert wird. Sie wird bei weiteren Aktualisierungen neu aufgebaut. Das kann zu „Wenig Daten“ oder „Keine Daten“ führen.
+- **Seit v0.2.2 wird die Tageshistorie gespeichert** und beim Neustart wieder geladen. Der Cache der externen API bleibt dagegen kurzfristig; fehlende historische Züge können nicht vollständig nachträglich beschafft werden.
 - Unter **Einstellungen → Geräte & Dienste → Bahnmonitor → Konfigurieren** kann „Streckenlage aktivieren“ ein- oder ausgeschaltet werden; für bestehende Einträge ist es standardmäßig aktiv.
 
 Die Attribute `same_direction` und `reverse_direction` enthalten Anzahl, Mittelwert, Verspätungen, Ausfälle und die jeweils jüngsten Züge. Der Sensor bleibt unabhängig davon, ob die siebentägige Fahrplanquelle einen 503-Fehler meldet.
