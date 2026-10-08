@@ -55,10 +55,9 @@ def goes_to_destination(entry: dict, destination: str) -> bool:
 
 
 def matches_line(train: str | None, line: str) -> bool:
-    """Match 'RE 1' without also selecting 'RE 11' or 'RE 10'."""
-    actual = re.sub(r"\s+", " ", train or "").strip().upper()
-    expected = re.sub(r"\s+", " ", line or "").strip().upper()
-    return actual == expected or actual.startswith(expected + " (")
+    """Treat RE1/RE 1 as equal without confusing RE 1 with RE 11."""
+    actual, expected = norm(train), norm(line)
+    return bool(expected) and (actual == expected or actual.startswith(expected + "("))
 
 
 def board_departure(entries: list[dict], line: str, destination: str, planned: datetime, tolerance: int) -> dict | None:
@@ -82,7 +81,7 @@ def board_departure(entries: list[dict], line: str, destination: str, planned: d
             # "RE 16243" instead of the passenger-facing line "RE 1".
             # Only use the timetable/destination heuristic for one
             # uniquely close regional service. Never assert line identity.
-            norm(str(entry.get("train") or "")).startswith("re")
+            re.fullmatch(r"RE\\s*[0-9]{4,6}", str(entry.get("train") or ""), flags=re.IGNORECASE)
             and distance <= min(tolerance, 7) * 60
         ):
             inferred.append((distance, scheduled, entry))
