@@ -8,10 +8,15 @@ from typing import Any
 from aiohttp import ClientError, ClientSession
 
 from .const import API_URL
+from .stations import known_station
 
 
 class BahnApiError(Exception):
     """Remote provider failed."""
+
+
+class StationNotFound(BahnApiError):
+    """Station name was not found by the timetable API."""
 
 
 class BahnApi:
@@ -26,13 +31,16 @@ class BahnApi:
                     headers={"User-Agent": "HomeAssistant-Bahnmonitor/0.1 (personal timetable monitor)"},
                 ) as response:
                     if response.status == 429:
-                        raise BahnApiError("Rate limit exceeded (HTTP 429)")
+                        raise BahnApiError("Fahrplandienst begrenzt Anfragen (HTTP 429)")
                     response.raise_for_status()
                     return await response.json()
         except (TimeoutError, ClientError, ValueError) as exc:
             raise BahnApiError(str(exc)) from exc
 
     async def resolve_station(self, station: str) -> tuple[str, str]:
+        known = known_station(station)
+        if known is not None:
+            return known
         results = await self._get("/locations", {"query": station, "results": 8, "poi": "false", "addresses": "false"})
         if not isinstance(results, list):
             raise BahnApiError("Invalid location response")
@@ -40,7 +48,7 @@ class BahnApi:
         exact = next((x for x in candidates if x.get("name", "").casefold() == station.casefold()), None)
         chosen = exact or next((x for x in candidates if x.get("name", "").casefold().startswith(station.casefold())), None)
         if not chosen:
-            raise BahnApiError(f"Station not found: {station}")
+            raise StationNotFound(f"Bahnhof nicht gefunden: {station}")
         return str(chosen["id"]), str(chosen["name"])
 
     async def departures(self, station_id: str, when: datetime, minutes: int) -> list[dict]:
