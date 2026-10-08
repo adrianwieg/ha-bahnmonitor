@@ -81,7 +81,7 @@ def test_iris_train_format_from_real_diagnostics():
     board = [
         {"train": "ABR RB57", "destination": "Nordhausen", "scheduledDeparture": "07:17"},
         {"train": "RB RB52", "destination": "Erfurt Hbf", "scheduledDeparture": "07:18"},
-        {"train": "RE RE1", "destination": "Göttingen", "scheduledDeparture": "07:18"},
+        {"train": "RE RE1", "line": "RE", "destination": "Göttingen", "scheduledDeparture": "07:18"},
         {"train": "RE RE11", "destination": "Neudietendorf", "scheduledDeparture": "07:40"},
         {"train": "ABR RE8", "destination": "Eichenberg", "scheduledDeparture": "07:53"},
     ]
