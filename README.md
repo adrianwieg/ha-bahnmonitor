@@ -1,4 +1,4 @@
-# Bahnmonitor – Home Assistant (v0.2.0, Prototyp)
+# Bahnmonitor – Home Assistant (v0.2.1, Prototyp)
 
 Überwacht wiederkehrende Verbindungen (z. B. RE 1 und RE 11 zwischen Leinefelde und Göttingen) bis zu sieben Tage im Voraus. Jede Fahrt wird als eigener GUI-Eintrag angelegt. Für Fahrten ab Göttingen kann eine **mögliche** Folgeverspätung aus einem ankommenden Zug derselben Linie abgeleitet werden. Die physische Fahrzeugdurchbindung wird **nicht** nachgewiesen.
 
@@ -42,6 +42,16 @@ Den Ordner `custom_components/bahnmonitor` nach `/config/custom_components/bahnm
 ## Ausfallsicherheit
 
 Bei Ausfall der Fern-Fahrplandaten bleibt die Integration geladen; Fahrten mit aktuellen IRIS-Daten bleiben nutzbar. Der Sensor **Fahrplandienst** meldet `partial`, wenn nur ein Teil der sieben Tage abgedeckt ist, und `unavailable`, wenn keine frischen Daten verfügbar sind. Vorhandene Werte werden bei nicht erfolgreicher Aktualisierung als `stale` gekennzeichnet. Binärsensoren werden bei fehlender oder nicht zuordenbarer Datenlage nicht fälschlich als Entwarnung ausgegeben.
+
+## Klarere Anzeige vor der Abfahrt (v0.2.1)
+
+Beispiel: RE 1 Göttingen → Leinefelde um 16:09 Uhr, Überprüfung um 07:52 Uhr.
+
+- Der Sensor **Streckenlage** zeigt `Startet um 12:09`, solange das vierstündige Beobachtungsfenster noch nicht erreicht ist. Der genaue Start steht im Attribut `monitoring_starts_at`.
+- Der Sensor **Nächste Fahrt** zeigt `Echtzeit ab 12:09` und behält die konfigurierte Abfahrt 16:09 bei. Das Attribut `timetable_confirmed: false` macht klar, dass die Uhrzeit **noch nicht aus einer aktuellen Fahrplandatenquelle bestätigt** wurde.
+- Der Sensor **Fahrplandienst** unterscheidet bei v6-Störungen vor dem Echtzeitfenster `7-Tage-Auskunft gestört` von späteren Fehlern beim Abruf aktueller Fahrtdaten.
+- Die Dashboard-Karte beschriftet 16:09 vor einer erfolgreichen Datenabfrage als **konfigurierte Abfahrt** statt als offiziellen Fahrplan und zeigt den Start der Streckenbeobachtung.
+- Der Fahrplandienst `v6.db.transport.rest` liefert weiterhin teilweise HTTP 503. Diese Version **behebt die missverständliche Darstellung**, nicht den externen API-Ausfall. Wenn ab 12:09 keine Daten auftauchen, bitte Diagnose-JSON erneut prüfen.
 
 ## Neue Funktionen in v0.2.0
 
