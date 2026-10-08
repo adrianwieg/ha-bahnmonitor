@@ -24,7 +24,7 @@ class BahnApi:
     def __init__(self, session: ClientSession) -> None:
         self._session = session
         # Shared by all configured Bahnmonitor entries.
-        self._dbf_cache: dict[tuple[str, str], tuple[datetime, list[dict]]] = {}
+        self._dbf_cache: dict[str, tuple[datetime, list[dict]]] = {}
         self._dbf_station_last: dict[str, datetime] = {}
         self._dbf_lock = asyncio.Lock()
 
@@ -33,11 +33,14 @@ class BahnApi:
         if mode not in ("dep", "arr"):
             raise ValueError("Invalid DBF board mode")
         now = datetime.now(timezone.utc)
-        key = (station_id, mode)
+        # Ask for arrival and departure data in one station board request.
+        # DBF's documented "deparr" mode avoids a second IRIS request for
+        # the same station, which the public service rate-limits.
+        key = station_id
         async with self._dbf_lock:
             cached = self._dbf_cache.get(key)
             if cached and now - cached[0] < timedelta(seconds=75):
-                return cached[1]
+                return self._filter_board(cached[1], mode)
             last = self._dbf_station_last.get(station_id)
             if last and now - last < timedelta(seconds=65):
                 raise BahnApiError("DBF station cooldown active (65 seconds)")
@@ -46,7 +49,7 @@ class BahnApi:
                 async with asyncio.timeout(15):
                     async with self._session.get(
                         f"https://dbf.finalrewind.org/{quote(station_id, safe='')}.json",
-                        params={"version": 3, "admode": mode, "limit": 100, "past": 1, "detailed": 1},
+                        params={"version": 3, "admode": "deparr", "limit": 100, "past": 1, "detailed": 1},
                         headers={"User-Agent": "Bahnmonitor/0.1 (+https://github.com/adrianwieg/ha-bahnmonitor)"},
                     ) as response:
                         response.raise_for_status()
@@ -58,7 +61,15 @@ class BahnApi:
                 raise BahnApiError(f"DBF/IRIS: unexpected board response: {error or type(data).__name__}")
             entries = data["departures"]
             self._dbf_cache[key] = (datetime.now(timezone.utc), entries)
-            return entries
+            return self._filter_board(entries, mode)
+
+    @staticmethod
+    def _filter_board(entries: list[dict], mode: str) -> list[dict]:
+        key = "scheduledArrival" if mode == "arr" else "scheduledDeparture"
+        return [
+            entry for entry in entries
+            if isinstance(entry, dict) and entry.get(key)
+        ]
 
     async def _get(self, path: str, params: dict[str, Any]) -> Any:
         try:
