@@ -160,3 +160,35 @@ def test_match_diagnostic_shows_nearest_timetable_times():
     assert trip is None
     assert explanation["reason"] == "no_departure_within_search_window"
     assert "2026-10-08T16:09:00+02:00" in explanation["nearest_planned_departures"]
+
+
+def test_missing_direct_trip_reports_origin_only_service():
+    """An RE departure at Göttingen may terminate short of Leinefelde."""
+    data = gtfs._parse_gtfs(feed())
+    debug = {}
+    result = gtfs.find_trip(
+        data, origin="Göttingen", destination="Eichenberg",
+        line="RE 1", planned=planned(), tolerance=10,
+        diagnostic=debug,
+    )
+    assert result is None
+    assert debug["reason"] == "no_matching_direct_route"
+    assert debug["origin_service_count"] >= 1
+    assert debug["nearest_origin_departures"][0] == {
+        "time": "2026-10-08T16:09:00+02:00",
+        "last_stop": "Leinefelde",
+    }
+
+
+def test_no_match_diagnostic_remains_unconfirmed():
+    data = gtfs._parse_gtfs(feed())
+    debug = {}
+    result = gtfs.find_trip(
+        data, origin="Göttingen", destination="Leinefelde",
+        line="RE 1",
+        planned=datetime(2026, 10, 14, 17, 45, tzinfo=TZ),
+        tolerance=10, diagnostic=debug,
+    )
+    assert result is None
+    assert debug["reason"] == "no_departure_within_search_window"
+    assert debug["time_candidates"] == 0
