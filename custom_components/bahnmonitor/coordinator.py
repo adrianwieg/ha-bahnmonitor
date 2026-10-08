@@ -420,6 +420,18 @@ class BahnCoordinator(DataUpdateCoordinator):
             list(self._route_observations.values()), target=target_for_summary,
             now=now, limit=3, upcoming=upcoming,
         )
+        own_route = (
+            f"{self.settings['origin']} → {self.settings['destination']}"
+        )
+        other_route = (
+            f"{self.settings['destination']} → {self.settings['origin']}"
+        )
+        data["same_direction"]["label"] = own_route
+        data["reverse_direction"]["label"] = other_route
+        data["direction_labels"] = {
+            "same": own_route,
+            "reverse": other_route,
+        }
         data["source_status"] = (
             "online" if len(successful) == 2
             else "partial" if successful
@@ -575,6 +587,8 @@ class BahnCoordinator(DataUpdateCoordinator):
             ),
             "incoming_departure_match": relation["status"],
             "incoming_departure_candidate_count": relation.get("count", 0),
+            "incoming_route": f"{from_station} → {to_station}",
+            "outgoing_route": f"{to_station} → {from_station}",
             "outgoing_station": to_station,
             "outgoing_destination": from_station,
             "outgoing_planned": departure.isoformat(),
