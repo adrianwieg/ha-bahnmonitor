@@ -1,0 +1,118 @@
+# Lovelace -> Dashboard bearbeiten -> Karte hinzufügen -> Manuell.
+# Komplette YAML-Datei als eine Karte einfügen.
+# Die drei entity_id-Werte ggf. an die von Home Assistant vergebenen IDs anpassen.
+type: vertical-stack
+cards:
+  - type: markdown
+    title: "🚆 Meine Zugfahrt"
+    content: |
+      {% set id = 'sensor.pendlerzug_naechste_fahrt' %}
+      {% set trips = state_attr(id, 'journeys') or [] %}
+      {% set status = states(id) %}
+      {% set origin = state_attr(id, 'origin') or 'Startbahnhof' %}
+      {% set destination = state_attr(id, 'destination') or 'Zielbahnhof' %}
+      {% set departure = state_attr(id, 'display_departure') or '–' %}
+      {% set planned = state_attr(id, 'display_planned') or '–' %}
+      {% set delay = state_attr(id, 'display_delay') or 'Unbekannt' %}
+      {% set track = state_attr(id, 'display_platform') or 'Gleis unbekannt' %}
+
+      ### {{ origin }} → {{ destination }}
+
+      {% if status == 'Verspätet' %}
+      ## 🟠 {{ departure }} · {{ delay }}
+      {% elif status == 'Pünktlich' %}
+      ## 🟢 {{ departure }} · Pünktlich
+      {% elif status == 'Fällt aus' %}
+      ## 🔴 Fahrt fällt aus
+      {% elif status == 'Planmäßig' %}
+      ## 🔵 {{ departure }} · Planmäßig
+      {% elif status == 'Zuordnung unbestätigt' %}
+      ## ⚪ {{ departure }} · Möglicher Zugtreffer
+      {% else %}
+      ## ⚪ {{ status }}
+      {% endif %}
+
+      **Plan:** {{ planned }} Uhr · **{{ track }}**
+
+      {% if state_attr(id, 'platform_changed') %}
+      ⚠️ Gleisänderung erkannt
+      {% endif %}
+      {% if trips and trips[0].get('stale') %}
+      ⚠️ Angaben möglicherweise veraltet
+      {% endif %}
+      <small>Hinweis: Die Zugdaten stammen aus einer externen Auskunft und sind keine Garantie.</small>
+
+  - type: grid
+    columns: 3
+    square: false
+    cards:
+      - type: tile
+        entity: sensor.pendlerzug_streckenlage
+        name: Streckenlage
+        vertical: true
+      - type: tile
+        entity: sensor.pendlerzug_fahrplandienst
+        name: Datenquelle
+        vertical: true
+      - type: tile
+        entity: binary_sensor.pendlerzug_zugausfall
+        name: Ausfall
+        vertical: true
+
+  - type: markdown
+    title: "🚦 Streckenlage vor meiner Fahrt"
+    content: |
+      {% set id = 'sensor.pendlerzug_streckenlage' %}
+      {% set status = states(id) %}
+      {% set same = state_attr(id, 'same_direction') or {} %}
+      {% set rev = state_attr(id, 'reverse_direction') or {} %}
+      {% set summary = state_attr(id, 'summary') or 'Noch keine Daten vorhanden.' %}
+      {% set source = state_attr(id, 'source_status') or 'not_checked' %}
+      {% if status == 'Unauffällig' %}
+      ### 🟢 {{ status }}
+      {% elif status == 'Auffällig' %}
+      ### 🟠 {{ status }}
+      {% elif status == 'Stark gestört' %}
+      ### 🔴 {{ status }}
+      {% else %}
+      ### ⚪ {{ status }}
+      {% endif %}
+
+      {{ summary }}
+
+      **Meine Richtung:** {{ same.get('count', 0) }} Züge, davon {{ same.get('delayed_count', 0) }} verspätet
+
+      **Gegenrichtung:** {{ rev.get('count', 0) }} Züge, davon {{ rev.get('delayed_count', 0) }} verspätet
+
+      {% if same.get('trains') %}
+      **↗ Meine Richtung**
+
+      | Zug | Abfahrt | Verspätung |
+      |:---|:---|---:|
+      {% for t in same.get('trains', []) %}
+      | {{ t.get('line', '?') }} | {{ as_datetime(t.scheduled_departure).strftime('%H:%M') }} | {{ 'Ausfall' if t.cancelled else ('+' ~ t.delay_minutes ~ ' Min' if t.delay_minutes is number and t.delay_minutes > 0 else (t.delay_minutes ~ ' Min' if t.delay_minutes is number else 'unbekannt')) }} |
+      {% endfor %}
+      {% endif %}
+
+      {% if rev.get('trains') %}
+      **↙ Gegenrichtung**
+
+      | Zug | Abfahrt | Verspätung |
+      |:---|:---|---:|
+      {% for t in rev.get('trains', []) %}
+      | {{ t.get('line', '?') }} | {{ as_datetime(t.scheduled_departure).strftime('%H:%M') }} | {{ 'Ausfall' if t.cancelled else ('+' ~ t.delay_minutes ~ ' Min' if t.delay_minutes is number and t.delay_minutes > 0 else (t.delay_minutes ~ ' Min' if t.delay_minutes is number else 'unbekannt')) }} |
+      {% endfor %}
+      {% endif %}
+
+      {% if source != 'online' %}
+      *Datenabdeckung: {{ source }} – weniger als drei frühere Züge pro Richtung sind möglich.*
+      {% endif %}
+      *Die Streckenlage ist ein Indikator, keine bestätigte Folgeverspätung oder Fahrzeugdurchbindung.*
+
+  - type: entities
+    title: "Weitere Informationen"
+    entities:
+      - entity: binary_sensor.pendlerzug_mogliche_folgeverspatung
+        name: Mögliche Folgeverspätung
+      - entity: sensor.pendlerzug_naechste_fahrt
+        name: Abfahrtsstatus
