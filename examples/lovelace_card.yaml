@@ -191,6 +191,40 @@ cards:
       {% endif %}
       *Die Streckenlage ist ein Indikator, keine bestätigte Folgeverspätung oder Fahrzeugdurchbindung.*
 
+  - type: markdown
+    title: "📢 Gemeldete Verspätungsgründe · RE 1 / RE 11"
+    content: |
+      {% set id = 'sensor.pendlerzug_streckenlage' %}
+      {% set same = state_attr(id, 'same_direction') or {} %}
+      {% set reverse = state_attr(id, 'reverse_direction') or {} %}
+      {% set ns = namespace(shown=0) %}
+      {% for label, group in [
+        (same.get('label', 'Göttingen → Leinefelde'), same),
+        (reverse.get('label', 'Leinefelde → Göttingen'), reverse)
+      ] %}
+      **{{ label }}**
+
+      {% for train in (group.get('current_departures', []) + group.get('trains', [])) %}
+      {% if train.get('delay_minutes') is number and train.get('delay_minutes') >= 3 %}
+      {% set ns.shown = ns.shown + 1 %}
+      - **{{ train.get('line', 'RE') }} · {{ (train.get('scheduled_departure') or '')[11:16] }} Uhr · +{{ train.get('delay_minutes') }} Min.**
+        {% set causes = train.get('delay_reasons') or [] %}
+        {% if causes %}
+        {% for reason in causes %}
+        - Gemeldet: {{ reason.get('text') }}
+        {% endfor %}
+        {% else %}
+        - Kein Verspätungsgrund übermittelt.
+        {% endif %}
+      {% endif %}
+      {% endfor %}
+      {% endfor %}
+      {% if ns.shown == 0 %}
+      Noch keine verspäteten RE-1-/RE-11-Fahrten in der aktuellen Auswertung.
+      {% endif %}
+
+      *Die Texte stammen aus den IRIS-Zugmeldungen, nicht aus einer eigenen Vermutung. Züge, die vor dem Update erfasst wurden, können noch ohne Grund erscheinen.*
+
   - type: entities
     title: "Weitere Informationen"
     entities:
