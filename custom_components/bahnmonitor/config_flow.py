@@ -18,6 +18,17 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 _LOGGER = logging.getLogger(__name__)
 
 
+def default_turnaround_at(data: dict) -> str:
+    """Preserve legacy setup, while new setups default to start station."""
+    if "turnaround_at" in data:
+        return data["turnaround_at"]
+    if not data.get("turnaround", True):
+        return "off"
+    if "origin" in data and data["origin"].strip().casefold() != "göttingen":
+        return "off"
+    return "origin"
+
+
 def schema(defaults: dict | None = None) -> vol.Schema:
     x = defaults or {}
     return vol.Schema({
@@ -29,7 +40,11 @@ def schema(defaults: dict | None = None) -> vol.Schema:
         vol.Required("weekdays", default=x.get("weekdays", DEFAULT_DAYS)): str,
         vol.Required("window", default=x.get("window", DEFAULT_WINDOW)): vol.All(vol.Coerce(int), vol.Range(min=5, max=90)),
         vol.Required("history_enabled", default=x.get("history_enabled", True)): bool,
-        vol.Required("turnaround", default=x.get("turnaround", True)): bool,
+        vol.Required("turnaround_at", default=default_turnaround_at(x)): vol.In({
+            "off": "Kein Wendebahnhof / Prüfung aus",
+            "origin": "Startbahnhof ist Wendebahnhof",
+            "destination": "Zielbahnhof ist Wendebahnhof",
+        }),
         vol.Required("min_turn_minutes", default=x.get("min_turn_minutes", 8)): vol.All(vol.Coerce(int), vol.Range(min=0, max=30)),
         vol.Required("max_turn_minutes", default=x.get("max_turn_minutes", DEFAULT_TURNAROUND)): vol.All(vol.Coerce(int), vol.Range(min=10, max=120)),
     })
@@ -39,7 +54,13 @@ def valid_config(data: dict) -> bool:
     try:
         time.fromisoformat(data["departure_time"])
         days = [int(d.strip()) for d in data["weekdays"].split(",")]
-        return bool(days) and all(0 <= d <= 6 for d in days) and data["origin"].strip().casefold() != data["destination"].strip().casefold()
+        return (
+            bool(days)
+            and all(0 <= d <= 6 for d in days)
+            and data["origin"].strip().casefold()
+                != data["destination"].strip().casefold()
+            and data.get("turnaround_at", "off") in ("off", "origin", "destination")
+        )
     except (ValueError, KeyError):
         return False
 
