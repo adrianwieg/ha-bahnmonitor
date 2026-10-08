@@ -26,3 +26,22 @@ def test_inbound_risk_is_unconfirmed():
 def test_absent_is_not_cancelled():
     assert not m.cancellation({})
     assert m.evaluate_turnaround(None, datetime.fromisoformat('2026-10-08T17:00:00+02:00'), 8)['status'] == 'unknown'
+
+
+
+def test_1609_followup_has_one_minute_turn_and_hypothetical_nine_minute_delay():
+    """IRIS 15:51 +17 arrival → 16:08, outbound scheduled 16:09."""
+    inbound = {
+        "line": {"name": "RE 1"},
+        "plannedWhen": "2026-10-08T15:51:00+02:00",
+        "when": "2026-10-08T16:08:00+02:00",
+        "delay": 17 * 60,
+    }
+    departure = datetime.fromisoformat("2026-10-08T16:09:00+02:00")
+    result = m.evaluate_turnaround(inbound, departure, 10)
+    assert result["risk"] is True
+    assert result["turnaround_buffer_minutes"] == 1
+    assert result["estimated_minimum_followup_delay_minutes"] == 9
+    assert result["earliest_plausible_outgoing"] == "2026-10-08T16:18:00+02:00"
+    assert result["estimated_delay_only_if_same_vehicle"] is True
+    assert result["confirmed_vehicle"] is False
