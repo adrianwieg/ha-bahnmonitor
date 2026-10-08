@@ -55,9 +55,23 @@ def goes_to_destination(entry: dict, destination: str) -> bool:
 
 
 def matches_line(train: str | None, line: str) -> bool:
-    """Treat RE1/RE 1 as equal without confusing RE 1 with RE 11."""
-    actual = re.sub(r"\s+", "", train or "").upper()
-    expected = re.sub(r"\s+", "", line or "").upper()
+    """Recognise customer-facing RE lines in IRIS names, e.g. 'RE RE1'.
+
+    The first RE in an IRIS name denotes the product class and the second
+    indicates the displayed line. Compare line numbers as complete tokens;
+    never allow RE1 to match RE11 or a train run such as RE16243.
+    """
+    if not isinstance(train, str) or not isinstance(line, str):
+        return False
+    target = re.fullmatch(r"RE\s*([0-9]+)", line.strip(), flags=re.IGNORECASE)
+    if target:
+        line_numbers = set(re.findall(
+            r"(?<![A-Z0-9])RE\s*([0-9]+)(?![A-Z0-9])",
+            train.upper(),
+        ))
+        return line_numbers == {target.group(1)}
+    actual = re.sub(r"\s+", "", train).upper()
+    expected = re.sub(r"\s+", "", line).upper()
     return bool(expected) and (actual == expected or actual.startswith(expected + "("))
 
 
