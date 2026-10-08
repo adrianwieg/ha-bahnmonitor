@@ -26,13 +26,23 @@ class BahnBinarySensor(CoordinatorEntity, BinarySensorEntity):
         # Unknown upstream status must never raise a false all-clear or warning.
         data = self.coordinator.data or {}
         journeys = data.get("journeys") or []
-        return (
-            super().available
-            and data.get("provider_status") in ("online", "partial")
-            and bool(journeys)
-            and not journeys[0].get("stale", True)
-            and journeys[0].get("status") not in ("unknown", "not_found")
-        )
+        if not (super().available and journeys):
+            return False
+        trip = journeys[0]
+        # A GTFS scheduled train is NOT a live cancellation confirmation.
+        if trip.get("stale") or trip.get("source") not in (
+            "DBF/IRIS-TTS", "db.transport.rest",
+        ):
+            return False
+        if self.kind == "cancelled":
+            # An inferred route-only match cannot confirm that *this* RE
+            # service is cancelled.
+            return (
+                trip.get("status") not in ("unknown", "not_found")
+                and trip.get("line_match", "exact") == "exact"
+            )
+        risk = trip.get("turnaround") or {}
+        return risk.get("status") in ("possible", "no_indication")
 
     @property
     def is_on(self):
