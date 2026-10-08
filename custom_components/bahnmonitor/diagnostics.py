@@ -16,7 +16,7 @@ async def async_get_config_entry_diagnostics(
     coord = entry.runtime_data
     data = coord.data or {}
     return {
-        "version": "0.3.0",
+        "version": "0.3.1",
         "entry_title": entry.title,
         "configured_route": {
             "origin": coord.settings.get("origin"),
@@ -25,6 +25,7 @@ async def async_get_config_entry_diagnostics(
             "departure_time": coord.settings.get("departure_time"),
             "weekdays": coord.settings.get("weekdays"),
             "turnaround_at": coord.settings.get("turnaround_at", "legacy"),
+            "effective_turnaround_at": coord._turnaround_choice(),
             "min_turn_minutes": coord.settings.get("min_turn_minutes"),
             "max_turn_minutes": coord.settings.get("max_turn_minutes"),
         },
