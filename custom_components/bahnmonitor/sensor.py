@@ -49,28 +49,28 @@ class BahnJourneySensor(BahnEntity):
             destination=self.coordinator.settings["destination"],
         )
         route_health = data.get("route_health") or {}
-        start = route_health.get("monitoring_starts_at")
+        start = route_health.get("own_train_realtime_starts_at")
         if (
             trip
             and trip.get("status") in ("unknown", "not_found")
             and not trip.get("source")
-            and route_health.get("source_status") == "not_started"
             and start
+            and data.get("diagnostics", {}).get("realtime_dbf", {}).get("status") == "skipped"
         ):
             # Configured departure is not a verified DB timetable.
             start_hhmm = result_time(start)
-            result["display_status"] = f"Echtzeit ab {start_hhmm}"
+            result["display_status"] = f"Zugprognose ab {start_hhmm}"
             result["display_note"] = (
-                f"Zugbeobachtung startet um {start_hhmm} Uhr. "
-                "Die bisherige Abfahrtszeit stammt aus deiner Konfiguration "
-                "und ist nicht durch die Datenquelle bestätigt."
+                "Die Streckenlage wird bereits ganztägig beobachtet. "
+                f"Dein konkreter Zug wird ab {start_hhmm} Uhr in Echtzeit geprüft. "
+                "Die angegebene Abfahrtszeit ist noch nicht durch Fahrplandaten bestätigt."
             )
             result["display_summary"] = (
                 f"{self.coordinator.settings['line']} · "
                 f"{self.coordinator.settings['origin']} → "
                 f"{self.coordinator.settings['destination']} · "
                 f"{result['display_planned']} Uhr konfiguriert · "
-                f"Echtzeitprüfung ab {start_hhmm} Uhr"
+                f"Zugprognose ab {start_hhmm} Uhr"
             )
         elif trip and trip.get("status") in ("unknown", "not_found"):
             result["display_note"] = (
