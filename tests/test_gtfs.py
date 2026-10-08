@@ -107,3 +107,56 @@ def test_gtfs_rejects_bad_zip():
         pass
     else:
         assert False, "Bad archive must not become an empty but valid timetable"
+
+
+def test_match_diagnostic_explains_success():
+    parsed = gtfs._parse_gtfs(feed())
+    explanation = {}
+    trip = gtfs.find_trip(
+        parsed, origin="Göttingen", destination="Leinefelde",
+        line="RE 1", planned=planned(), tolerance=15,
+        diagnostic=explanation,
+    )
+    assert trip is not None
+    assert explanation["reason"] == "matched"
+    assert explanation["time_candidates"] == 1
+
+
+def test_match_diagnostic_explains_calendar_exception():
+    parsed = gtfs._parse_gtfs(feed(cancelled=True))
+    explanation = {}
+    trip = gtfs.find_trip(
+        parsed, origin="Göttingen", destination="Leinefelde",
+        line="RE 1", planned=planned(), tolerance=15,
+        diagnostic=explanation,
+    )
+    assert trip is None
+    assert explanation["reason"] == "no_active_calendar_service"
+    assert explanation["time_candidates"] == 0
+
+
+def test_match_diagnostic_explains_ambiguous_times():
+    parsed = gtfs._parse_gtfs(feed(duplicate=True))
+    explanation = {}
+    trip = gtfs.find_trip(
+        parsed, origin="Göttingen", destination="Leinefelde",
+        line="RE 1", planned=planned(), tolerance=15,
+        diagnostic=explanation,
+    )
+    assert trip is None
+    assert explanation["reason"] == "ambiguous_multiple_departures"
+    assert explanation["time_candidates"] == 2
+
+
+def test_match_diagnostic_shows_nearest_timetable_times():
+    parsed = gtfs._parse_gtfs(feed())
+    explanation = {}
+    trip = gtfs.find_trip(
+        parsed, origin="Göttingen", destination="Leinefelde",
+        line="RE 1",
+        planned=datetime(2026, 10, 8, 17, 45, tzinfo=TZ),
+        tolerance=10, diagnostic=explanation,
+    )
+    assert trip is None
+    assert explanation["reason"] == "no_departure_within_search_window"
+    assert "2026-10-08T16:09:00+02:00" in explanation["nearest_planned_departures"]
