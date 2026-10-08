@@ -41,7 +41,10 @@ def _station_match(name: str, configured: str) -> bool:
     # Avoid matching a suburb simply because it begins with Göttingen.
     if _norm(name) == _norm(configured):
         return True
-    short = re.sub(r"\s+(hbf|hauptbahnhof|bahnhof)$", "", (name or "").strip(), flags=re.I)
+    short = re.sub(
+        r"[, ]+(hbf|hauptbahnhof|bahnhof)(?:/zob)?$",
+        "", (name or "").strip(), flags=re.I,
+    )
     return _norm(short) == _norm(configured)
 
 
