@@ -229,3 +229,55 @@ def test_1609_route_watched_already_at_0752(monkeypatch):
         assert api.stations == ["8000128", "8010203"]
     finally:
         clock.now = original_now
+
+
+def test_corridor_observations_request_coalesced_persistence(monkeypatch):
+    """New daily sightings are scheduled for storage, not written every poll."""
+    code, api_error = load_coordinator(monkeypatch)
+    clock = sys.modules["homeassistant.util.dt"]
+    original_now = clock.now
+    clock.now = lambda: datetime(
+        2026, 10, 8, 7, 52, tzinfo=ZoneInfo("Europe/Berlin")
+    )
+
+    class BoardProvider(Provider):
+        async def dbf_board(self, station, mode="dep"):
+            if station == "8000128":
+                return [{
+                    "train": "RE RE1", "destination": "Leinefelde",
+                    "scheduledDeparture": "07:20", "delayDeparture": 11,
+                }]
+            return []
+
+    class MemoryStore:
+        calls = 0
+        pending = None
+        delay = None
+
+        def async_delay_save(self, producer, delay):
+            self.calls += 1
+            self.pending = producer
+            self.delay = delay
+
+    try:
+        coordinator = code.BahnCoordinator(
+            None, BoardProvider(api_error), {
+                "departure_time": "16:09", "weekdays": "0,1,2,3,4",
+                "window": 20, "origin_id": "8000128",
+                "destination_id": "8010203", "origin": "Göttingen",
+                "destination": "Leinefelde", "line": "RE 1",
+                "turnaround": True,
+            }, "persist-test",
+        )
+        store = MemoryStore()
+        coordinator._history_store = store
+        data = asyncio.run(coordinator._async_update_data())
+        assert data["route_health"]["status"] == "Auffällig"
+        assert store.calls == 1
+        assert store.delay == 120
+        observed = store.pending()["observations"]
+        assert len(observed) == 1
+        assert observed[0]["delay_minutes"] == 11
+        assert observed[0]["scheduled_departure"] == "2026-10-08T07:20:00+02:00"
+    finally:
+        clock.now = original_now
