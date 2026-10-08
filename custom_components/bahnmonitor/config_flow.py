@@ -2,17 +2,20 @@
 from __future__ import annotations
 
 from datetime import time
+import logging
 
 import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.data_entry_flow import FlowResult
 
-from .api import BahnApi, BahnApiError
+from .api import BahnApi, BahnApiError, StationNotFound
 from .const import (
     DEFAULT_DAYS, DEFAULT_DESTINATION, DEFAULT_LINE, DEFAULT_ORIGIN,
     DEFAULT_TIME, DEFAULT_TURNAROUND, DEFAULT_WINDOW, DOMAIN,
 )
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+
+_LOGGER = logging.getLogger(__name__)
 
 
 def schema(defaults: dict | None = None) -> vol.Schema:
@@ -57,7 +60,11 @@ class BahnmonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 try:
                     origin_id, origin_name = await api.resolve_station(user_input["origin"].strip())
                     destination_id, destination_name = await api.resolve_station(user_input["destination"].strip())
-                except BahnApiError:
+                except StationNotFound as exc:
+                    _LOGGER.warning("Bahnmonitor: %s", exc)
+                    errors["base"] = "station_not_found"
+                except BahnApiError as exc:
+                    _LOGGER.warning("Bahnmonitor: Bahnhofsdienst-Fehler bei der Einrichtung: %s", exc)
                     errors["base"] = "connection_error"
                 else:
                     user_input.update(origin_id=origin_id, origin=origin_name, destination_id=destination_id, destination=destination_name)
@@ -76,7 +83,11 @@ class BahnmonitorOptionsFlow(config_entries.OptionsFlowWithReload):
                 try:
                     origin_id, origin_name = await api.resolve_station(user_input["origin"].strip())
                     destination_id, destination_name = await api.resolve_station(user_input["destination"].strip())
-                except BahnApiError:
+                except StationNotFound as exc:
+                    _LOGGER.warning("Bahnmonitor: %s", exc)
+                    errors["base"] = "station_not_found"
+                except BahnApiError as exc:
+                    _LOGGER.warning("Bahnmonitor: Bahnhofsdienst-Fehler bei der Einrichtung: %s", exc)
                     errors["base"] = "connection_error"
                 else:
                     user_input.update(origin_id=origin_id, origin=origin_name, destination_id=destination_id, destination=destination_name)
