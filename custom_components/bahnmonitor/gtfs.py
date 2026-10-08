@@ -12,6 +12,7 @@ import io
 import logging
 import re
 from datetime import date, datetime, timedelta, timezone
+from time import monotonic
 from zoneinfo import ZoneInfo
 from zipfile import BadZipFile, ZipFile
 
@@ -270,6 +271,9 @@ class GtfsSchedule:
         self._fetched: datetime | None = None
         self._last_error: str | None = None
         self._next_retry: datetime | None = None
+        self._download_seconds: float | None = None
+        self._parse_seconds: float | None = None
+        self._compressed_bytes: int | None = None
         self._lock = asyncio.Lock()
 
     @property
@@ -280,6 +284,9 @@ class GtfsSchedule:
             "last_error": self._last_error,
             "next_retry": self._next_retry.isoformat() if self._next_retry else None,
             "feed_loaded": self._data is not None,
+            "last_download_seconds": self._download_seconds,
+            "last_parse_seconds": self._parse_seconds,
+            "downloaded_bytes": self._compressed_bytes,
             "recent_matches": dict(self._match_debug),
         }
 
@@ -300,6 +307,7 @@ class GtfsSchedule:
                     return
                 raise GtfsError(self._last_error or "GTFS wartet auf Wiederholung")
             try:
+                download_started = monotonic()
                 async with asyncio.timeout(60):
                     async with self._session.get(
                         FEED_URL,
@@ -313,9 +321,13 @@ class GtfsSchedule:
                             if size > MAX_DOWNLOAD:
                                 raise GtfsError("GTFS-Download überschreitet 32 MiB")
                             chunks.append(chunk)
+                self._download_seconds = round(monotonic() - download_started, 2)
+                self._compressed_bytes = size
+                parse_started = monotonic()
                 parsed = await self._hass.async_add_executor_job(
                     _parse_gtfs, b"".join(chunks),
                 )
+                self._parse_seconds = round(monotonic() - parse_started, 2)
             except (TimeoutError, ClientError, ValueError, GtfsError) as exc:
                 self._last_error = str(exc)
                 self._next_retry = now + RETRY_COOLDOWN
