@@ -50,7 +50,8 @@ def goes_to_destination(entry: dict, destination: str) -> bool:
         elif isinstance(stop, str) and norm(stop) == expected:
             return True
     # The short 'via' field may carry the destination if route is omitted.
-    return any(norm(v if isinstance(v, str) else v.get("name")) == expected for v in (entry.get("via") or []) if isinstance(v, (str, dict)))
+    via = entry.get("via") or []
+    return any(norm(v if isinstance(v, str) else v.get("name")) == expected for v in via if isinstance(v, (str, dict)))
 
 
 def matches_line(train: str | None, line: str) -> bool:
