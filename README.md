@@ -2,7 +2,22 @@
 
 Custom Integration zur Überwachung wiederkehrender Zugfahrten und der Streckenlage. Entwickelt für **RE 1 und RE 11 zwischen Göttingen und Leinefelde**, mit frei konfigurierbaren Start- und Zielbahnhöfen.
 
-**Version 0.3.4 – Prototyp**. Installation über HACS möglich; API- und Fahrplandaten müssen im eigenen Home Assistant praktisch geprüft werden.
+**Version 0.3.5 – Prototyp**. Installation über HACS möglich; API- und Fahrplandaten müssen im eigenen Home Assistant praktisch geprüft werden.
+
+## Veröffentlichte Verspätungsgründe für RE 1/RE 11 (v0.3.5)
+
+Die bereits für die Streckenlage verwendete DBF-/IRIS-Stationstafel enthält neben `delayDeparture` auch **`messages.delay`**, sofern für den konkreten Zug eine offizielle Verspätungsmeldung veröffentlicht wurde. Die Integration übernimmt diese Meldungen **ohne weitere API-Anfragen** und speichert sie gemeinsam mit den täglichen Streckenbeobachtungen. Es werden höchstens drei verschiedene Meldungen pro Zug samt Quellzeitstempel gespeichert; redundante Nachrichten werden entfernt.
+
+- In `same_direction.trains`, `reverse_direction.trains`, `same_direction.current_departures` und `reverse_direction.current_departures` stehen die Felder **`delay_reason`** (erste Meldung oder `null`) und **`delay_reasons`** (Liste von Objekten mit `text`, `timestamp`, `source`).
+- Der Streckenindikator führt im Feld `reason` und der Liste `trigger_reasons` veröffentlichte Ursachen an, ohne aus der Verspätungsdauer eigene Gründe zu erfinden. Die Zahl der aktuell mit veröffentlichten Ursachen versehenen verspäteten Fahrten steht in `published_delay_reason_count`.
+- Der Zugstatus der eigenen Fahrt (`journeys[0]`) hat bei erfolgreicher IRIS-Abfrage ebenfalls `delay_reason` und `delay_reasons`. Für die mögliche Vorleistung gibt es außerdem `incoming_departure_delay_reasons` und `incoming_arrival_delay_reasons`.
+- **`messages.qos` sind andere Zugmeldungen**, beispielsweise Ausstattungs- und Qualitätsinformationen, und werden ausdrücklich **nicht** als Verspätungsursache angezeigt.
+- Bei einem verspäteten Zug ohne `messages.delay` steht im Dashboard **„Kein Verspätungsgrund übermittelt“**. Dies bedeutet nicht, dass keine Ursache existiert, sondern lediglich, dass die öffentlich abrufbare Tafel keine konkrete nennt.
+- Eine schon vor dem Update von Bahnmonitor gespeicherte ältere Fahrt hat noch keinen Grund. Die externe Stationstafel hat nur eine begrenzte historische Abdeckung; ältere Meldungen können nicht beliebig nachträglich abgerufen werden.
+
+Die Beispielkarte `examples/lovelace_card.yaml` enthält den neuen Abschnitt **„Gemeldete Verspätungsgründe · RE 1 / RE 11“**, jeweils mit konkretem Streckenverlauf und Sollabfahrtszeit.
+
+Datenstruktur belegt durch den veröffentlichten DBF-Quellcode: [DBInfoscreen/Stationboard.pm](https://github.com/derf/db-fakedisplay/blob/master/lib/DBInfoscreen/Controller/Stationboard.pm) und [JSON-API-Tests](https://github.com/derf/db-fakedisplay/blob/master/t/22-json.t). Die darin enthaltenen Verspätungsgründe stammen aus dem IRIS-Fahrgastinformationssystem und sind nicht immer vorhanden.
 
 ## Verständliche Fahrtrichtungen und nachvollziehbare Zugwende (v0.3.4)
 
