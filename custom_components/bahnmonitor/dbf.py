@@ -146,11 +146,10 @@ def board_departure(entries: list[dict], line: str, destination: str, planned: d
     }
 
 
-def board_incoming(entries: list[dict], line: str, outbound: datetime, max_turn: int) -> dict | None:
-    """Find a possible inbound train using the IRIS arrival board.
-
-    Vehicle circulation is NOT established by same line and arrival time.
-    """
+def incoming_candidates(
+    entries: list[dict], line: str, outbound: datetime, max_turn: int,
+) -> list[dict]:
+    """Return *all* plausible inbound same-line trains, never a vehicle link."""
     candidates = []
     for entry in entries:
         if not isinstance(entry, dict) or not matches_line(entry.get("train"), line):
@@ -165,11 +164,20 @@ def board_incoming(entries: list[dict], line: str, outbound: datetime, max_turn:
         if isinstance(delay, bool) or not isinstance(delay, (int, float)):
             delay = None
         predicted = planned + timedelta(minutes=delay) if delay is not None else None
-        candidates.append((planned, {
+        candidates.append({
             "line": {"name": line},
             "plannedWhen": planned.isoformat(),
             "when": predicted.isoformat() if predicted else None,
             "delay": delay * 60 if delay is not None else None,
             "cancelled": bool(entry.get("isCancelled")),
-        }))
-    return max(candidates, key=lambda item: item[0])[1] if candidates else None
+            "observed_train": entry.get("train"),
+        })
+    return sorted(candidates, key=lambda item: item["plannedWhen"], reverse=True)
+
+
+def board_incoming(
+    entries: list[dict], line: str, outbound: datetime, max_turn: int,
+) -> dict | None:
+    """Legacy helper: latest candidate, NOT confirmed same-vehicle working."""
+    candidates = incoming_candidates(entries, line, outbound, max_turn)
+    return candidates[0] if candidates else None
