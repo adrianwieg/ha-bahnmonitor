@@ -13,10 +13,10 @@
           "departure_time": "Geplante Abfahrt (HH:MM)",
           "weekdays": "Wochentage (0–6, kommagetrennt)",
           "window": "Abfahrts-Suchfenster (Minuten)",
-          "turnaround": "Vorleistung am Wendebahnhof Göttingen prüfen",
-          "min_turn_minutes": "Benötigter Wendepuffer (Minuten)",
-          "max_turn_minutes": "Maximaler Rückblick für Vorleistung (Minuten)",
-          "history_enabled": "Streckenlage: Frühere RE 1/RE 11 beider Richtungen auswerten"
+          "min_turn_minutes": "Geschätzter Mindest-Wendepuffer (Minuten)",
+          "max_turn_minutes": "Zeitraum für mögliche ankommende Züge (Minuten)",
+          "history_enabled": "Streckenlage: Frühere RE 1/RE 11 beider Richtungen auswerten",
+          "turnaround_at": "Wendebahnhof (Auswahl für diese Verbindung)"
         }
       }
     },
@@ -38,10 +38,10 @@
           "departure_time": "Geplante Abfahrt (HH:MM)",
           "weekdays": "Wochentage (0–6)",
           "window": "Abfahrts-Suchfenster (Minuten)",
-          "turnaround": "Vorleistung in Göttingen prüfen",
-          "min_turn_minutes": "Benötigter Wendepuffer",
-          "max_turn_minutes": "Vorleistungs-Suchzeitraum",
-          "history_enabled": "Streckenlage aktivieren"
+          "min_turn_minutes": "Geschätzter Mindest-Wendepuffer (Minuten)",
+          "max_turn_minutes": "Zeitraum für mögliche ankommende Züge (Minuten)",
+          "history_enabled": "Streckenlage aktivieren",
+          "turnaround_at": "Wendebahnhof (Start, Ziel oder keiner)"
         }
       }
     },
