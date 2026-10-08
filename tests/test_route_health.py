@@ -335,3 +335,62 @@ def test_reason_uses_station_names_instead_of_hin_und_rueckweg():
     assert "15:18" in result["reason"]
     assert "Hinrichtung" not in result["reason"]
     assert "Gegenrichtung" not in result["reason"]
+
+
+
+def test_published_delay_causes_remain_on_prior_and_upcoming_trains():
+    now = at(15, 17)
+    earlier = health.collect_previous(
+        [
+            {"train": "RE RE1", "destination": "Göttingen",
+             "scheduledDeparture": "14:43", "delayDeparture": 12,
+             "messages": {"delay": [
+                 {"timestamp": "2026-10-08T14:37", "text": "Signalstörung"}
+             ], "qos": [{"text": "Wagen fehlt"}]}},
+            {"train": "RE RE11", "destination": "Göttingen",
+             "scheduledDeparture": "13:18", "delayDeparture": 15},
+        ],
+        direction="reverse", origin="Leinefelde",
+        destination="Göttingen", planned=at(16, 9), now=now,
+    )
+    upcoming = health.collect_upcoming(
+        [
+            {"train": "RE RE1", "destination": "Göttingen",
+             "scheduledDeparture": "15:18", "delayDeparture": 18,
+             "messages": {"delay": [
+                 {"timestamp": "2026-10-08T15:15", "text": "Verspätung aus vorheriger Fahrt"}
+             ]}},
+        ],
+        direction="reverse", origin="Leinefelde",
+        destination="Göttingen", now=now,
+    )
+    result = health.summarise(
+        earlier, target=at(16, 9), now=now, upcoming=upcoming,
+    )
+    past = result["reverse_direction"]["trains"]
+    future = result["reverse_direction"]["current_departures"]
+    assert len(past) == 2
+    assert any(row["delay_reason"] == "Signalstörung" for row in past)
+    assert any(row["delay_reason"] is None for row in past)
+    assert len(future) == 1
+    assert future[0]["delay_reasons"][0]["text"] == "Verspätung aus vorheriger Fahrt"
+    assert result["published_delay_reason_count"] == 2
+    assert "gemeldeter Grund: Signalstörung" in result["reason"]
+    assert "gemeldeter Grund: Verspätung aus vorheriger Fahrt" in result["reason"]
+    assert "Wagen fehlt" not in result["reason"]
+
+
+def test_no_reason_is_not_synthesised_from_18min_delay():
+    now = at(15, 17)
+    upcoming = health.collect_upcoming(
+        [{"train": "RE RE1", "destination": "Göttingen",
+          "scheduledDeparture": "15:18", "delayDeparture": 18,
+          "messages": {"delay": [], "qos": [{"text": "Signalstörung"}]}}],
+        direction="reverse", origin="Leinefelde",
+        destination="Göttingen", now=now,
+    )
+    result = health.summarise([], target=at(16, 9), now=now, upcoming=upcoming)
+    assert result["published_delay_reason_count"] == 0
+    assert upcoming[0]["delay_reason"] is None
+    assert upcoming[0]["delay_reasons"] == []
+    assert "gemeldeter Grund" not in result["reason"]
