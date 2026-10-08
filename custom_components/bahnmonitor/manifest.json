@@ -1,9 +1,10 @@
 {
   "domain": "bahnmonitor",
   "name": "Bahnmonitor",
-  "version": "0.1.0",
-  "documentation": "https://v6.db.transport.rest/api.html",
-  "issue_tracker": "https://github.com/derhuerst/db-rest/issues",
+  "version": "0.1.1",
+  "documentation": "https://github.com/adrianwieg/ha-bahnmonitor",
+  "issue_tracker": "https://github.com/adrianwieg/ha-bahnmonitor/issues",
+  "codeowners": ["@adrianwieg"],
   "config_flow": true,
   "integration_type": "service",
   "iot_class": "cloud_polling",
