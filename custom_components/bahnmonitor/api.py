@@ -2,8 +2,9 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Any
+from urllib.parse import quote
 
 from aiohttp import ClientError, ClientSession
 
@@ -22,6 +23,42 @@ class StationNotFound(BahnApiError):
 class BahnApi:
     def __init__(self, session: ClientSession) -> None:
         self._session = session
+        # Shared by all configured Bahnmonitor entries.
+        self._dbf_cache: dict[tuple[str, str], tuple[datetime, list[dict]]] = {}
+        self._dbf_station_last: dict[str, datetime] = {}
+        self._dbf_lock = asyncio.Lock()
+
+    async def dbf_board(self, station_id: str, mode: str = "dep") -> list[dict]:
+        """IRIS-TTS station board: near-term only, not seven-day data."""
+        if mode not in ("dep", "arr"):
+            raise ValueError("Invalid DBF board mode")
+        now = datetime.now(timezone.utc)
+        key = (station_id, mode)
+        async with self._dbf_lock:
+            cached = self._dbf_cache.get(key)
+            if cached and now - cached[0] < timedelta(seconds=75):
+                return cached[1]
+            last = self._dbf_station_last.get(station_id)
+            if last and now - last < timedelta(seconds=65):
+                raise BahnApiError("DBF station cooldown active (65 seconds)")
+            self._dbf_station_last[station_id] = now
+            try:
+                async with asyncio.timeout(15):
+                    async with self._session.get(
+                        f"https://dbf.finalrewind.org/{quote(station_id, safe='')}.json",
+                        params={"version": 3, "admode": mode, "limit": 100},
+                        headers={"User-Agent": "Bahnmonitor/0.1 (+https://github.com/adrianwieg/ha-bahnmonitor)"},
+                    ) as response:
+                        response.raise_for_status()
+                        data = await response.json()
+            except (TimeoutError, ClientError, ValueError) as exc:
+                raise BahnApiError(f"DBF/IRIS: {exc}") from exc
+            if not isinstance(data, dict) or not isinstance(data.get("departures"), list):
+                error = data.get("error") if isinstance(data, dict) else None
+                raise BahnApiError(f"DBF/IRIS: unexpected board response: {error or type(data).__name__}")
+            entries = data["departures"]
+            self._dbf_cache[key] = (datetime.now(timezone.utc), entries)
+            return entries
 
     async def _get(self, path: str, params: dict[str, Any]) -> Any:
         try:
