@@ -74,3 +74,50 @@ def test_arrival_with_missing_realtime_is_unknown():
     data = [{"train": "RE 11", "scheduledArrival": "07:15"}]
     incoming = dbf.board_incoming(data, "RE 11", trip_time(), 30)
     assert incoming["when"] is None
+
+
+def test_iris_train_format_from_real_diagnostics():
+    """Real station-board sample: line RE 1 at 07:18 toward Göttingen."""
+    board = [
+        {"train": "ABR RB57", "destination": "Nordhausen", "scheduledDeparture": "07:17"},
+        {"train": "RB RB52", "destination": "Erfurt Hbf", "scheduledDeparture": "07:18"},
+        {"train": "RE RE1", "destination": "Göttingen", "scheduledDeparture": "07:18"},
+        {"train": "RE RE11", "destination": "Neudietendorf", "scheduledDeparture": "07:40"},
+        {"train": "ABR RE8", "destination": "Eichenberg", "scheduledDeparture": "07:53"},
+    ]
+    result = dbf.board_departure(
+        board, "RE 1", "Göttingen", trip_time(7, 18), 20
+    )
+    assert result is not None
+    assert result["line_match"] == "exact"
+    assert result["line"] == "RE 1"
+    assert result["observed_train"] == "RE RE1"
+    assert result["scheduled_departure"] == "2026-10-08T07:18:00+02:00"
+    assert result["source"] == "DBF/IRIS-TTS"
+    assert result["status"] == "scheduled"
+    assert dbf.board_departure(
+        board, "RE 11", "Göttingen", trip_time(7, 18), 20
+    ) is None
+
+
+def test_iris_operational_prefix_exactness():
+    assert dbf.matches_line("RE RE1", "RE 1")
+    assert dbf.matches_line("RE RE11", "RE 11")
+    assert dbf.matches_line("RE RE 1", "RE1")
+    assert dbf.matches_line("ABR RE8", "RE 8")
+    assert not dbf.matches_line("RE RE11", "RE1")
+    assert not dbf.matches_line("RE RE1", "RE 11")
+    assert not dbf.matches_line("RE 16243", "RE 1")
+    assert not dbf.matches_line("IRE1", "RE 1")
+    assert not dbf.matches_line("RE RE1 (RE 11)", "RE 1")
+
+
+def test_iris_incoming_prefix():
+    board = [{
+        "train": "RE RE1",
+        "scheduledArrival": "07:05",
+        "delayArrival": 9,
+    }]
+    incoming = dbf.board_incoming(board, "RE1", trip_time(7, 18), 30)
+    assert incoming["plannedWhen"] == "2026-10-08T07:05:00+02:00"
+    assert incoming["when"] == "2026-10-08T07:14:00+02:00"
