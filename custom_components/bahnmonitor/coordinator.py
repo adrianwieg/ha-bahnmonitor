@@ -161,6 +161,10 @@ class BahnCoordinator(DataUpdateCoordinator):
             self._last_full_check = now
 
         route_health = await self._route_health(next_planned, now)
+        # A responsive corridor IRIS board is useful live data even if the
+        # separate seven-day timetable provider is currently unavailable.
+        if route_health.get("source_status") in ("online", "partial"):
+            live_success = True
         unavailable = failed or (
             self._blocked_until is not None and now < self._blocked_until
         )
@@ -249,10 +253,26 @@ class BahnCoordinator(DataUpdateCoordinator):
                 if previous is None or row["observed_at"] >= previous.get("observed_at", ""):
                     self._route_observations[key] = row
                     observations_changed = True
-            upcoming.extend(collect_upcoming(
+            current = collect_upcoming(
                 board, direction=direction, origin=origin,
                 destination=destination, now=now,
-            ))
+            )
+            # A train's own future delay must never inflate the independent
+            # corridor-risk assessment of that same train.
+            if target is not None and target.date() == now.date():
+                current = [
+                    row for row in current
+                    if not (
+                        direction == "same"
+                        and row["line"].replace(" ", "").upper()
+                            == self.settings["line"].replace(" ", "").upper()
+                        and abs(
+                            (datetime.fromisoformat(row["scheduled_departure"]) - target).total_seconds()
+                        ) <= int(self.settings["window"]) * 60
+                    )
+                    and datetime.fromisoformat(row["scheduled_departure"]) < target
+                ]
+            upcoming.extend(current)
 
         if observations_changed and self._history_store is not None:
             self._history_store.async_delay_save(
