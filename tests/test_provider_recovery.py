@@ -289,13 +289,16 @@ def test_configurable_turnaround_origin_is_not_hardcoded_gottingen(monkeypatch):
 
     class BoardProvider:
         async def dbf_board(self, station, mode="dep"):
-            assert station == "8010203" and mode == "arr"
-            return [{
-                "train": "RE RE11",
-                "scheduledArrival": "16:00",
-                "delayArrival": 12,
-                "isCancelled": False,
-            }]
+            if mode == "arr":
+                assert station == "8010203"
+                return [{
+                    "train": "RE RE11",
+                    "scheduledArrival": "16:00",
+                    "delayArrival": 12,
+                    "isCancelled": False,
+                }]
+            assert station == "8000128" and mode == "dep"
+            return []
 
     settings = {
         "origin": "Leinefelde",
@@ -492,3 +495,88 @@ def test_gtfs_no_match_keeps_explanation_during_503(monkeypatch):
     assert first.get("status") != "cancelled"
     assert first["timetable_confirmed"] is False
     assert data["provider_error"] and "503" in data["provider_error"]
+
+
+def test_1609_re1_leinefelde_1518_arrival_1551_delay_17_turnaround(monkeypatch):
+    """Real diagnostic 2026-10-08: exactly one minute computed turn in Göttingen."""
+    code, api_error = load_coordinator(monkeypatch)
+    calls = []
+
+    class BoardProvider:
+        async def dbf_board(self, station, mode="dep"):
+            calls.append((station, mode))
+            if station == "8000128" and mode == "arr":
+                return [{
+                    "train": "RE RE1",
+                    "scheduledArrival": "15:51",
+                    "delayArrival": 17,
+                    "isCancelled": False,
+                }]
+            if station == "8010203" and mode == "dep":
+                return [{
+                    "train": "RE RE1",
+                    "destination": "Göttingen",
+                    "scheduledDeparture": "15:18",
+                    "delayDeparture": 18,
+                }]
+            raise AssertionError(f"unexpected station board {station=} {mode=}")
+
+    settings = {
+        "origin": "Göttingen", "destination": "Leinefelde",
+        "origin_id": "8000128", "destination_id": "8010203",
+        "line": "RE 1", "turnaround_at": "origin",
+        "min_turn_minutes": 10, "max_turn_minutes": 60,
+    }
+    coordinator = code.BahnCoordinator(None, BoardProvider(), settings, "turn-1609")
+    result = asyncio.run(coordinator._check_dbf_turnaround(
+        datetime(2026, 10, 8, 16, 9, tzinfo=ZoneInfo("Europe/Berlin")),
+        "RE 1",
+    ))
+    assert calls == [("8000128", "arr"), ("8010203", "dep")]
+    assert result["status"] == "possible"
+    assert result["risk"] is True
+    assert result["incoming_route"] == "Leinefelde → Göttingen"
+    assert result["incoming_departure_planned"] == "2026-10-08T15:18:00+02:00"
+    assert result["incoming_departure_predicted"] == "2026-10-08T15:36:00+02:00"
+    assert result["incoming_departure_delay_minutes"] == 18
+    assert result["incoming_planned"] == "2026-10-08T15:51:00+02:00"
+    assert result["incoming_predicted"] == "2026-10-08T16:08:00+02:00"
+    assert result["incoming_delay_minutes"] == 17
+    assert result["turnaround_station"] == "Göttingen"
+    assert result["turnaround_buffer_minutes"] == 1
+    assert result["minimum_turnaround_minutes"] == 10
+    assert result["estimated_minimum_followup_delay_minutes"] == 9
+    assert result["earliest_plausible_outgoing"] == "2026-10-08T16:18:00+02:00"
+    assert result["incoming_departure_match"] == "plausible"
+    assert result["incoming_departure_candidate_count"] == 1
+    assert result["outgoing_route"] == "Göttingen → Leinefelde"
+    assert result["confirmed_vehicle"] is False
+
+
+def test_turnaround_without_correlated_opposite_departure_still_reports_risk(monkeypatch):
+    code, _ = load_coordinator(monkeypatch)
+
+    class Provider:
+        async def dbf_board(self, station, mode="dep"):
+            if mode == "arr":
+                return [{
+                    "train": "RE RE1",
+                    "scheduledArrival": "15:51",
+                    "delayArrival": 17,
+                }]
+            return []
+
+    coordinator = code.BahnCoordinator(None, Provider(), {
+        "origin": "Göttingen", "destination": "Leinefelde",
+        "origin_id": "8000128", "destination_id": "8010203",
+        "line": "RE 1", "turnaround_at": "origin",
+        "min_turn_minutes": 10, "max_turn_minutes": 60,
+    }, "unknown-origin")
+    result = asyncio.run(coordinator._check_dbf_turnaround(
+        datetime(2026, 10, 8, 16, 9, tzinfo=ZoneInfo("Europe/Berlin")),
+        "RE 1",
+    ))
+    assert result["risk"] is True
+    assert result["incoming_departure_match"] == "not_found"
+    assert result["incoming_departure_planned"] is None
+    assert result["confirmed_vehicle"] is False
