@@ -56,8 +56,8 @@ def goes_to_destination(entry: dict, destination: str) -> bool:
 
 def matches_line(train: str | None, line: str) -> bool:
     """Match 'RE 1' without also selecting 'RE 11' or 'RE 10'."""
-    actual = re.sub(r"\\s+", " ", train or "").strip().upper()
-    expected = re.sub(r"\\s+", " ", line or "").strip().upper()
+    actual = re.sub(r"\s+", " ", train or "").strip().upper()
+    expected = re.sub(r"\s+", " ", line or "").strip().upper()
     return actual == expected or actual.startswith(expected + " (")
 
 
