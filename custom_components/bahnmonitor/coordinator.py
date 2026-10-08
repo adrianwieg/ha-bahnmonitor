@@ -591,6 +591,12 @@ class BahnCoordinator(DataUpdateCoordinator):
             "incoming_departure_delay_minutes": relation.get(
                 "departure_delay_minutes",
             ),
+            "incoming_departure_delay_reasons": relation.get(
+                "delay_reasons", [],
+            ),
+            "incoming_arrival_delay_reasons": inbound.get(
+                "delay_reasons", [],
+            ),
             "incoming_scheduled_travel_minutes": relation.get(
                 "scheduled_travel_minutes",
             ),
