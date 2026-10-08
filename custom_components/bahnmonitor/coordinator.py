@@ -57,6 +57,7 @@ class BahnCoordinator(DataUpdateCoordinator):
         blocked = self._blocked_until is not None and now < self._blocked_until
         failed = False
         attempted = False
+        gtfs_checked = False
         live_success = False
         journeys = []
         near_eligible = False
@@ -119,6 +120,7 @@ class BahnCoordinator(DataUpdateCoordinator):
                 except GtfsError as exc:
                     self._gtfs_error = str(exc)
                 else:
+                    gtfs_checked = True
                     self._gtfs_error = None
                     if gtfs_trip is not None:
                         cached = gtfs_trip
@@ -176,7 +178,9 @@ class BahnCoordinator(DataUpdateCoordinator):
             item["date"]: {k: v for k, v in item.items() if k != "stale"}
             for item in journeys
         }
-        if full and attempted and not failed:
+        # One successful GTFS scan already establishes the scheduled
+        # 7-day picture. Avoid parsing all dates every ten minutes.
+        if full and (gtfs_checked or (attempted and not failed)):
             self._last_full_check = now
 
         route_health = await self._route_health(next_planned, now)
