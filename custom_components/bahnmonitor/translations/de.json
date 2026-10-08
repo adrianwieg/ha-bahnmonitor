@@ -1,6 +1,59 @@
 {
   "title": "Bahnmonitor",
-  "config": {"step": {"user": {"title": "Zugverbindung hinzufügen", "description": "Lege eine tägliche Fahrt an. Wochentage: 0=Montag bis 6=Sonntag, z. B. 0,1,2,3,4. Abfahrt als HH:MM.", "data": {"name":"Name der Verbindung", "origin":"Startbahnhof", "destination":"Zielbahnhof", "line":"Linie (z. B. RE 1)", "departure_time":"Geplante Abfahrt (HH:MM)", "weekdays":"Wochentage (0–6, kommagetrennt)", "window":"Abfahrts-Suchfenster (Minuten)", "turnaround":"Vorleistung am Wendebahnhof Göttingen prüfen", "min_turn_minutes":"Benötigter Wendepuffer (Minuten)", "max_turn_minutes":"Maximaler Rückblick für Vorleistung (Minuten)"}}}, "error": {"invalid_settings":"Einstellungen ungültig: HH:MM, Wochentage und unterschiedliche Bahnhöfe prüfen", "connection_error":"Bahnhofssuche oder Anbieter momentan nicht erreichbar"}},
-  "options": {"step": {"init": {"title": "Zugverbindung bearbeiten", "data": {"name":"Name der Verbindung", "origin":"Startbahnhof", "destination":"Zielbahnhof", "line":"Linie", "departure_time":"Geplante Abfahrt (HH:MM)", "weekdays":"Wochentage (0–6)", "window":"Abfahrts-Suchfenster (Minuten)", "turnaround":"Vorleistung in Göttingen prüfen", "min_turn_minutes":"Benötigter Wendepuffer", "max_turn_minutes":"Vorleistungs-Suchzeitraum"}}}, "error": {"invalid_settings":"Einstellungen ungültig", "connection_error":"Anbieter nicht erreichbar"}},
-  "entity": {"sensor": {"next_journey": {"name": "Nächste Fahrt"}}}
+  "config": {
+    "step": {
+      "user": {
+        "title": "Zugverbindung hinzufügen",
+        "description": "Lege eine tägliche Fahrt an. Wochentage: 0=Montag bis 6=Sonntag, z. B. 0,1,2,3,4. Abfahrt als HH:MM.",
+        "data": {
+          "name": "Name der Verbindung",
+          "origin": "Startbahnhof",
+          "destination": "Zielbahnhof",
+          "line": "Linie (z. B. RE 1)",
+          "departure_time": "Geplante Abfahrt (HH:MM)",
+          "weekdays": "Wochentage (0–6, kommagetrennt)",
+          "window": "Abfahrts-Suchfenster (Minuten)",
+          "turnaround": "Vorleistung am Wendebahnhof Göttingen prüfen",
+          "min_turn_minutes": "Benötigter Wendepuffer (Minuten)",
+          "max_turn_minutes": "Maximaler Rückblick für Vorleistung (Minuten)"
+        }
+      }
+    },
+    "error": {
+      "invalid_settings": "Einstellungen ungültig: HH:MM, Wochentage und unterschiedliche Bahnhöfe prüfen",
+      "connection_error": "Fahrplandienst bei der Bahnhofssuche nicht erreichbar. Details im Home-Assistant-Protokoll.",
+      "station_not_found": "Bahnhof nicht gefunden. Bitte Bahnhofsnamen prüfen."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Zugverbindung bearbeiten",
+        "data": {
+          "name": "Name der Verbindung",
+          "origin": "Startbahnhof",
+          "destination": "Zielbahnhof",
+          "line": "Linie",
+          "departure_time": "Geplante Abfahrt (HH:MM)",
+          "weekdays": "Wochentage (0–6)",
+          "window": "Abfahrts-Suchfenster (Minuten)",
+          "turnaround": "Vorleistung in Göttingen prüfen",
+          "min_turn_minutes": "Benötigter Wendepuffer",
+          "max_turn_minutes": "Vorleistungs-Suchzeitraum"
+        }
+      }
+    },
+    "error": {
+      "invalid_settings": "Einstellungen ungültig",
+      "connection_error": "Fahrplandienst bei der Bahnhofssuche nicht erreichbar. Details im Home-Assistant-Protokoll.",
+      "station_not_found": "Bahnhof nicht gefunden. Bitte Bahnhofsnamen prüfen."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "next_journey": {
+        "name": "Nächste Fahrt"
+      }
+    }
+  }
 }
