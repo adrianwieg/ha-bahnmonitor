@@ -81,7 +81,7 @@ def board_departure(entries: list[dict], line: str, destination: str, planned: d
             # "RE 16243" instead of the passenger-facing line "RE 1".
             # Only use the timetable/destination heuristic for one
             # uniquely close regional service. Never assert line identity.
-            re.fullmatch(r"RE\\s*[0-9]{4,6}", str(entry.get("train") or ""), flags=re.IGNORECASE)
+            re.fullmatch(r"RE\s*[0-9]{4,6}", str(entry.get("train") or ""), flags=re.IGNORECASE)
             and distance <= min(tolerance, 7) * 60
         ):
             inferred.append((distance, scheduled, entry))
