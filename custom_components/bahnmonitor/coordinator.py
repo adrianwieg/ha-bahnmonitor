@@ -36,6 +36,11 @@ class BahnCoordinator(DataUpdateCoordinator):
         self._blocked_until: datetime | None = None
         self._failure_count = 0
         self._last_error: str | None = None
+        self._last_v6_attempt: datetime | None = None
+        self._dbf_debug: dict = {
+            "status": "not_checked",
+            "reason": "No departure in realtime window has been checked yet",
+        }
 
     async def _async_update_data(self) -> dict:
         now = dt_util.now().astimezone(TZ)
@@ -48,6 +53,8 @@ class BahnCoordinator(DataUpdateCoordinator):
         attempted = False
         live_success = False
         journeys = []
+        near_eligible = False
+        next_planned = None
 
         for offset in range(7):
             day = now.date() + timedelta(days=offset)
@@ -57,6 +64,8 @@ class BahnCoordinator(DataUpdateCoordinator):
             if planned < now - timedelta(hours=2):
                 continue
             key = day.isoformat()
+            if next_planned is None:
+                next_planned = planned
             cached = self._daily_cache.get(key)
             due = full or cached is None or (
                 planned <= now + timedelta(hours=24)
@@ -69,12 +78,26 @@ class BahnCoordinator(DataUpdateCoordinator):
             # DBF provides independent near-term IRIS-TTS predictions.
             near = -timedelta(minutes=30) <= planned - now <= timedelta(hours=4)
             if near:
+                near_eligible = True
+                self._dbf_debug = {
+                    "status": "checking",
+                    "station_id": settings_station_id(self.settings),
+                    "line": self.settings["line"],
+                    "planned_departure": planned.isoformat(),
+                    "checked_at": now.isoformat(),
+                }
                 try:
                     dbf = await self._fetch_dbf(planned, window, now)
                 except BahnApiError as exc:
-                    _LOGGER.debug("DBF board unavailable: %s", exc)
+                    self._dbf_debug.update(status="error", error=str(exc))
+                    _LOGGER.warning("Bahnmonitor: DBF/IRIS timetable unavailable: %s", exc)
                 else:
                     if dbf is not None:
+                        self._dbf_debug.update(
+                            status="matched", matched_source=dbf.get("source"),
+                            line_match=dbf.get("line_match"),
+                            observed_train=dbf.get("observed_train"),
+                        )
                         cached = dbf
                         fresh = True
                         live_success = True
@@ -83,6 +106,7 @@ class BahnCoordinator(DataUpdateCoordinator):
 
             if due and not fresh and not blocked and not failed:
                 attempted = True
+                self._last_v6_attempt = now
                 try:
                     cached = await self._fetch_trip(planned, window, now)
                 except BahnApiError as exc:
@@ -118,6 +142,14 @@ class BahnCoordinator(DataUpdateCoordinator):
             item["stale"] = bool((blocked or failed) and not fresh)
             journeys.append(item)
 
+        if not near_eligible:
+            self._dbf_debug = {
+                "status": "skipped",
+                "reason": "outside_realtime_window",
+                "window": "30 minutes before to 4 hours after current time",
+                "next_scheduled_departure": next_planned.isoformat() if next_planned else None,
+                "checked_at": now.isoformat(),
+            }
         self._daily_cache = {
             item["date"]: {k: v for k, v in item.items() if k != "stale"}
             for item in journeys
@@ -140,6 +172,20 @@ class BahnCoordinator(DataUpdateCoordinator):
             "retry_at": self._blocked_until.isoformat() if unavailable and self._blocked_until else None,
             "last_successful_update": self._last_successful_update.isoformat() if self._last_successful_update else None,
             "checked_at": now.isoformat(),
+            "diagnostics": {
+                "configured_line": self.settings["line"],
+                "configured_route": f"{self.settings['origin']} -> {self.settings['destination']}",
+                "configured_departure_time": self.settings["departure_time"],
+                "configured_weekdays": self.settings["weekdays"],
+                "next_scheduled_departure": next_planned.isoformat() if next_planned else None,
+                "realtime_dbf": dict(self._dbf_debug),
+                "future_timetable": {
+                    "status": "backoff" if unavailable else "online" if attempted else "not_checked",
+                    "last_attempt": self._last_v6_attempt.isoformat() if self._last_v6_attempt else None,
+                    "last_error": self._last_error,
+                    "retry_at": self._blocked_until.isoformat() if unavailable and self._blocked_until else None,
+                },
+            },
         }
 
     async def _fetch_dbf(
@@ -148,10 +194,26 @@ class BahnCoordinator(DataUpdateCoordinator):
         """Get near-term data from IRIS-TTS, without claiming seven-day coverage."""
         settings = self.settings
         board = await self.api.dbf_board(settings["origin_id"], mode="dep")
+        self._dbf_debug.update(
+            status="board_received",
+            returned_count=len(board),
+            sample=[
+                {
+                    "train": entry.get("train"),
+                    "destination": entry.get("destination"),
+                    "scheduledDeparture": entry.get("scheduledDeparture"),
+                }
+                for entry in board[:8] if isinstance(entry, dict)
+            ],
+        )
         result = board_departure(
             board, settings["line"], settings["destination"], planned, window,
         )
         if result is None:
+            self._dbf_debug.update(
+                status="no_matching_train",
+                reason="No unambiguous configured line, destination, time match",
+            )
             return None
         if settings.get("turnaround") and "göttingen" in settings["origin"].casefold():
             max_turn = int(settings["max_turn_minutes"])
@@ -269,3 +331,8 @@ class BahnCoordinator(DataUpdateCoordinator):
                 incoming, effective_planned, int(settings["min_turn_minutes"]),
             )
         return result
+
+
+def settings_station_id(settings: dict) -> str:
+    """Small diagnostic helper, avoiding leaking connection details."""
+    return str(settings.get("origin_id", "unknown"))
