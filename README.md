@@ -2,7 +2,17 @@
 
 Custom Integration zur Überwachung wiederkehrender Zugfahrten und der Streckenlage. Entwickelt für **RE 1 und RE 11 zwischen Göttingen und Leinefelde**, mit frei konfigurierbaren Start- und Zielbahnhöfen.
 
-**Version 0.3.2 – Prototyp**. Installation über HACS möglich; API- und Fahrplandaten müssen im eigenen Home Assistant praktisch geprüft werden.
+**Version 0.3.3 – Prototyp**. Installation über HACS möglich; API- und Fahrplandaten müssen im eigenen Home Assistant praktisch geprüft werden.
+
+## Schneller Home-Assistant-Start und transparenterer 7-Tage-Fahrplan (v0.3.3)
+
+Die Diagnose vom 08.10.2026 zeigte **rund 38 Sekunden** Einrichtungszeit pro Eintrag. Die erste Aktualisierung wartete bislang auf den Download und das Einlesen des großen GTFS-Regionalbahn-Feeds sowie auf ggf. fehlgeschlagene Zusatz-APIs.
+
+**Neues Startverhalten:** Die Bahnmonitor-Sensoren werden sofort mit dem deutlich gekennzeichneten Zustand **„Wird geladen“** registriert. Anschließend läuft der erste vollständige Datenabruf als **verwaltete Home-Assistant-Hintergrundaufgabe**. Sie wird bei Entladen des Eintrags automatisch beendet. Mehrere Einträge teilen sich weiterhin denselben GTFS-Download. Dadurch soll der Home-Assistant-Start wesentlich weniger Zeit beanspruchen; wie lange der Fahrplan im Hintergrund benötigt, zeigen die Diagnosewerte `last_download_seconds` und `last_parse_seconds`. Die Entitäten zeigen erst nach erfolgreichem Abruf reale Quelldaten. **Das ist kein schnellere Fahrplan-API**, sondern eine Entkopplung vom Startvorgang.
+
+**7-Tage-Abdeckung:** Ein fehlender direkter RE-1-/RE-11-Fahrplaneintrag wird ausdrücklich **nicht** als Ausfall behandelt. Bei einem GTFS-Abgleich ohne Treffer werden je Fahrtag nun `gtfs_match_reason`, `gtfs_nearest`, `gtfs_origin_services` und eine verständliche `message` gespeichert. Damit ist z. B. sichtbar, ob die Linie am Startbahnhof im veröffentlichten Feed vorkommt, aber ihr dort erfasster Zug einen anderen Endbahnhof hat. Der Abgleich ergänzt die Rohdaten unter `diagnostics.gtfs_schedule.recent_matches` mit `origin_service_count` und `nearest_origin_departures` samt letztem eingetragenem Halt.
+
+Die letzte Diagnose hatte am **13.10. keine durchgehende GTFS-Verbindung** und am **14.10. nur einen späteren passenden RE-1-Zug um 20:09 Uhr** gezeigt. Hieraus folgt weder ein verbindlicher Zugausfall noch ein Fehler der Integration. Die veröffentlichten GTFS-Basisfeeds enthalten keine verlässliche **Echtzeitbestätigung**. Die zusätzlich verwendete transport.rest-API antwortete weiterhin mit HTTP 503. Bis eine geeignete weitere, unabhängige Fahrplan-/Betriebsdatenquelle gefunden und getestet ist, markiert Bahnmonitor solche künftigen Fahrten weiterhin als **unbestätigt** statt eine Sicherheit vorzutäuschen.
 
 ## Präzise Abfahrtsprognosen und 7-Tage-Befund (v0.3.2)
 
