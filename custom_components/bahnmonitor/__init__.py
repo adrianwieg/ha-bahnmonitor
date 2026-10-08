@@ -46,11 +46,26 @@ async def async_setup_entry(hass, entry):
             except (KeyError, TypeError, ValueError):
                 continue
 
-    # The coordinator tolerates an unavailable provider and reports it in
-    # sensors; an API HTTP 503 must not prevent the integration from loading.
-    await coordinator.async_config_entry_first_refresh()
-    entry.runtime_data = coordinator
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    # Register the entities immediately. The first refresh must NOT wait for
+    # a 12 MB GTFS download or a timed-out external 7-day API. It returns an
+    # explicit "Wird geladen" snapshot; the real refresh runs after setup.
+    coordinator._startup_lightweight = True
+    try:
+        await coordinator.async_config_entry_first_refresh()
+        entry.runtime_data = coordinator
+        await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    finally:
+        coordinator._startup_lightweight = False
+
+    # ConfigEntry-managed task does not block Home Assistant startup and is
+    # cancelled automatically on unload. Concurrent entries share the GTFS
+    # download lock, so there is only one feed request.
+    entry.async_create_background_task(
+        hass,
+        coordinator.async_refresh(),
+        name=f"Bahnmonitor {entry.title} Fahrplandaten laden",
+        eager_start=False,
+    )
     return True
 
 
