@@ -258,13 +258,13 @@ def summarise(
             "Hinrichtung" if row["direction"] == "same"
             else "Gegenrichtung"
         )
-        label = "Abfahrtsprognose" if row in upcoming_rows else "frühere Fahrt"
+        observation_label = "Abfahrtsprognose" if row in upcoming_rows else "frühere Fahrt"
         situation = (
             "Ausfall gemeldet" if row["cancelled"]
             else f"+{row['delay_minutes']} Min gemeldet"
         )
         reasons.append(
-            f"{ts} {row['line']} ({route}, {label}): {situation}"
+            f"{ts} {row['line']} ({route}, {observation_label}): {situation}"
         )
     if reasons:
         cause = "; ".join(reasons[:6])
