@@ -9,6 +9,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 
 from .api import BahnApi, BahnApiError
+from .gtfs import GtfsError
 from .dbf import board_departure, incoming_candidates
 from .route_health import collect_previous, collect_upcoming, observation_key, summarise
 from .logic import (
@@ -30,6 +31,8 @@ class BahnCoordinator(DataUpdateCoordinator):
             update_interval=timedelta(minutes=10),
         )
         self.api = api
+        self.gtfs = None  # Shared daily static regional rail timetable, if enabled.
+        self._gtfs_error: str | None = None
         self.settings = settings
         self._daily_cache: dict[str, dict] = {}
         self._last_full_check: datetime | None = None
@@ -104,6 +107,22 @@ class BahnCoordinator(DataUpdateCoordinator):
                         cached = dbf
                         fresh = True
                         live_success = True
+                        self._last_successful_update = now
+                        self._daily_cache[key] = cached
+
+            # An independent daily GTFS static feed supplies scheduled
+            # trains for the next seven days; it NEVER proves realtime
+            # operation, punctuality, cancellation or vehicle circulation.
+            if due and not fresh and self.gtfs is not None:
+                try:
+                    gtfs_trip = await self.gtfs.find(self.settings, planned, window)
+                except GtfsError as exc:
+                    self._gtfs_error = str(exc)
+                else:
+                    self._gtfs_error = None
+                    if gtfs_trip is not None:
+                        cached = gtfs_trip
+                        fresh = True
                         self._last_successful_update = now
                         self._daily_cache[key] = cached
 
@@ -195,6 +214,10 @@ class BahnCoordinator(DataUpdateCoordinator):
                 "configured_weekdays": self.settings["weekdays"],
                 "next_scheduled_departure": next_planned.isoformat() if next_planned else None,
                 "realtime_dbf": dict(self._dbf_debug),
+                "gtfs_schedule": (
+                    {**self.gtfs.diagnostic, "error": self._gtfs_error}
+                    if self.gtfs is not None else {"status": "not_configured"}
+                ),
                 "future_timetable": {
                     "status": "backoff" if unavailable else "online" if attempted else "not_checked",
                     "last_attempt": self._last_v6_attempt.isoformat() if self._last_v6_attempt else None,
