@@ -169,6 +169,16 @@ def find_trip(
         counts["line_trips"] += 1
         # A GTFS service can run after midnight on the previous service day.
         for service_day in (planned.date(), planned.date() - timedelta(days=1)):
+            if service_day != planned.date():
+                # Only GTFS stop times >=24:00 can represent a departure
+                # on the next calendar day. Ordinary 16:09 trains from
+                # yesterday must not count as today's active services.
+                if not any(
+                    stop[2] and int(stop[2].split(":", 1)[0]) >= 24
+                    for stop in trip["stops"]
+                    if stop[2] and stop[2].split(":", 1)[0].isdigit()
+                ):
+                    continue
             if not _active(data, trip["service_id"], service_day):
                 continue
             counts["active_trips"] += 1
