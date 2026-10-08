@@ -2,7 +2,19 @@
 
 Custom Integration zur Überwachung wiederkehrender Zugfahrten und der Streckenlage. Entwickelt für **RE 1 und RE 11 zwischen Göttingen und Leinefelde**, mit frei konfigurierbaren Start- und Zielbahnhöfen.
 
-**Version 0.3.3 – Prototyp**. Installation über HACS möglich; API- und Fahrplandaten müssen im eigenen Home Assistant praktisch geprüft werden.
+**Version 0.3.4 – Prototyp**. Installation über HACS möglich; API- und Fahrplandaten müssen im eigenen Home Assistant praktisch geprüft werden.
+
+## Verständliche Fahrtrichtungen und nachvollziehbare Zugwende (v0.3.4)
+
+Statt unklarer Bezeichnungen `Hinrichtung`/`Gegenrichtung` verwendet die Streckenlage echte Bahnhofsnamen, z. B. **Göttingen → Leinefelde** beziehungsweise **Leinefelde → Göttingen**. Die neuen Attribute `direction_labels`, `same_direction.label` und `reverse_direction.label` erleichtern die Dashboard-Darstellung. Die textuelle Begründung `reason` nennt nun ebenfalls die konkreten Bahnhöfe.
+
+Für einen am **Startbahnhof** vermuteten Zugumlauf versucht die Integration nun zwei **unabhängige IRIS-Tafelmeldungen** zu korrelieren: den abfahrenden Zug am gegenüberliegenden Bahnhof und seine spätere Ankunft am Wendebahnhof. Die Meldungen müssen übereinstimmende Linie, Ziel, eine plausible Fahrtdauer (20–55 Minuten) und bei vorhandenen Verspätungswerten eine Abweichung von höchstens 10 Minuten haben. Bei mehreren passenden Fahrten bleibt die Zuordnung **uneindeutig**. Die Verknüpfung ist **kein Nachweis derselben Fahrzeuggarnitur**, da IRIS über diese Methode keine gesicherte Fahrzeugumlauf-ID liefert.
+
+**Beispiel aus der Diagnose vom 08.10.2026:** Leinefelde Abfahrt **15:18 +18** (Prognose 15:36), Göttingen Ankunft **15:51 +17** (Prognose 16:08), Göttingen nächste Abfahrt **16:09**. Das ergibt **eine Minute errechnete Wendezeit**. Bei einem in der Konfiguration angenommenen Mindestpuffer von **10 Minuten** liegt die theoretisch früheste Folgeabfahrt bei **16:18 Uhr** bzw. **9 Minuten nach der Sollabfahrt**. Das ist **kein amtlich gemeldeter Verspätungswert**. Bahnmonitor hält die derzeit gemeldete eigene Abfahrtsprognose unverändert und zeigt den Wendehinweis **zusätzlich** an. Der Nutzer hatte die Folgeabfahrt auch als 16:08 bezeichnet; die vom System am 08.10. gespeicherte Sollabfahrt beträgt weiterhin 16:09. Diese Minute wird nicht stillschweigend geändert.
+
+Neue Attribute unter `journeys[0].turnaround` sind `incoming_route`, `incoming_origin_station`, `incoming_departure_planned`, `incoming_departure_predicted`, `incoming_departure_delay_minutes`, `incoming_planned`, `incoming_predicted`, `outgoing_route`, `outgoing_planned`, `turnaround_buffer_minutes`, `minimum_turnaround_minutes`, `earliest_plausible_outgoing`, `estimated_minimum_followup_delay_minutes`, `incoming_departure_match` und `confirmed_vehicle`. Alle sind beim Fehlen einer eindeutigen Quelle entsprechend leer oder unbestätigt.
+
+Die Beispiel-Dashboard-Karte `examples/lovelace_card.yaml` enthält einen eigenen Abschnitt **„Mögliche Vorleistung → Zugwende → Deine Fahrt“**.
 
 ## Schneller Home-Assistant-Start und transparenterer 7-Tage-Fahrplan (v0.3.3)
 
