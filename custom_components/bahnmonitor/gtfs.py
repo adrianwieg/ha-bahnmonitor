@@ -157,6 +157,7 @@ def find_trip(
     expected = re.sub(r"\s+", "", line).upper()
     candidates = []
     nearest = []
+    origin_departures = []
     counts = {
         "line_trips": 0,
         "active_trips": 0,
@@ -202,6 +203,13 @@ def find_trip(
                     if delta <= tolerance:
                         candidates.append((origin_stop[1], arrival, trip))
                     break
+            if origin_stop is not None:
+                end_id = max(trip["stops"], key=lambda stop: stop[0])[1] if trip["stops"] else None
+                end_name = data["stops"].get(end_id, ("", ""))[0]
+                origin_departures.append((
+                    abs((origin_stop[1] - planned).total_seconds()) / 60,
+                    origin_stop[1], end_name,
+                ))
     counts["time_candidates"] = len(candidates)
     if not counts["line_trips"]:
         counts["reason"] = "line_not_in_feed"
@@ -218,6 +226,16 @@ def find_trip(
     counts["nearest_planned_departures"] = [
         when.isoformat()
         for _, when in sorted(set(nearest), key=lambda x: x[0])[:3]
+    ]
+    # Even if there is no direct trip, show whether RE1 ran at the origin
+    # but was short-turned or headed elsewhere. This is evidence about the
+    # static feed, NOT a claim about actual operation or cancellations.
+    counts["origin_service_count"] = len(origin_departures)
+    counts["nearest_origin_departures"] = [
+        {"time": when.isoformat(), "last_stop": terminal}
+        for _, when, terminal in sorted(
+            origin_departures, key=lambda value: value[0],
+        )[:3]
     ]
     if diagnostic is not None:
         diagnostic.update(counts)
@@ -311,7 +329,7 @@ class GtfsSchedule:
             self._last_error = None
             LOGGER.info("Bahnmonitor: GTFS-Sollfahrplan geladen (RE 1 / RE 11)")
 
-    async def find(self, settings: dict, when: datetime, tolerance: int) -> dict | None:
+    async def find_explained(self, settings: dict, when: datetime, tolerance: int) -> tuple[dict | None, dict]:
         await self._ensure()
         # Feed is shared across entries. Execute trips scan in HA's thread pool.
         def _match():
@@ -335,4 +353,9 @@ class GtfsSchedule:
             result["stale"] = (
                 datetime.now(timezone.utc) - self._fetched >= REFRESH_INTERVAL
             )
+        return result, debug
+
+    async def find(self, settings: dict, when: datetime, tolerance: int) -> dict | None:
+        """Compatibility wrapper for callers needing only the result."""
+        result, _ = await self.find_explained(settings, when, tolerance)
         return result
