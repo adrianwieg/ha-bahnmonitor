@@ -28,6 +28,7 @@ def schema(defaults: dict | None = None) -> vol.Schema:
         vol.Required("departure_time", default=x.get("departure_time", DEFAULT_TIME)): str,
         vol.Required("weekdays", default=x.get("weekdays", DEFAULT_DAYS)): str,
         vol.Required("window", default=x.get("window", DEFAULT_WINDOW)): vol.All(vol.Coerce(int), vol.Range(min=5, max=90)),
+        vol.Required("history_enabled", default=x.get("history_enabled", True)): bool,
         vol.Required("turnaround", default=x.get("turnaround", True)): bool,
         vol.Required("min_turn_minutes", default=x.get("min_turn_minutes", 8)): vol.All(vol.Coerce(int), vol.Range(min=0, max=30)),
         vol.Required("max_turn_minutes", default=x.get("max_turn_minutes", DEFAULT_TURNAROUND)): vol.All(vol.Coerce(int), vol.Range(min=10, max=120)),
