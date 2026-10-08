@@ -1,7 +1,7 @@
 {
   "domain": "bahnmonitor",
   "name": "Bahnmonitor",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "documentation": "https://github.com/adrianwieg/ha-bahnmonitor",
   "issue_tracker": "https://github.com/adrianwieg/ha-bahnmonitor/issues",
   "codeowners": ["@adrianwieg"],
