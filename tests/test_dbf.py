@@ -148,3 +148,54 @@ def test_single_incoming_candidate_does_not_prove_vehicle_link():
     assert len(result) == 1
     assert result[0]["delay"] == 420
     assert result[0]["observed_train"] == "RE RE11"
+
+
+def test_correlate_1518_leinefelde_board_with_1551_gottingen_arrival():
+    result = dbf.match_inbound_origin(
+        [
+            {"train": "RE RE1", "destination": "Göttingen",
+             "scheduledDeparture": "14:43", "delayDeparture": 12},
+            {"train": "RE RE1", "destination": "Göttingen",
+             "scheduledDeparture": "15:18", "delayDeparture": 18},
+        ],
+        line="RE 1", destination="Göttingen",
+        arrival=trip_time(15, 51),
+        arrival_delay_minutes=17,
+    )
+    assert result["status"] == "plausible"
+    assert result["count"] == 1
+    assert result["departure_planned"] == "2026-10-08T15:18:00+02:00"
+    assert result["departure_predicted"] == "2026-10-08T15:36:00+02:00"
+    assert result["departure_delay_minutes"] == 18
+    assert result["scheduled_travel_minutes"] == 33
+    assert result["confirmed_vehicle"] is False
+
+
+def test_inbound_origin_matching_rejects_mismatching_delays_and_lines():
+    board = [
+        {"train": "RE RE11", "destination": "Göttingen",
+         "scheduledDeparture": "15:18", "delayDeparture": 18},
+        {"train": "RE RE1", "destination": "Göttingen",
+         "scheduledDeparture": "15:18", "delayDeparture": 50},
+    ]
+    result = dbf.match_inbound_origin(
+        board, line="RE 1", destination="Göttingen",
+        arrival=trip_time(15, 51), arrival_delay_minutes=17,
+    )
+    assert result["status"] == "not_found"
+    assert result["confirmed_vehicle"] is False
+
+
+def test_inbound_origin_matching_never_guesses_between_two_services():
+    board = [
+        {"train": "RE RE1", "destination": "Göttingen",
+         "scheduledDeparture": "15:18", "delayDeparture": 18},
+        {"train": "RE RE1", "destination": "Göttingen",
+         "scheduledDeparture": "15:20", "delayDeparture": 18},
+    ]
+    result = dbf.match_inbound_origin(
+        board, line="RE 1", destination="Göttingen",
+        arrival=trip_time(15, 51), arrival_delay_minutes=17,
+    )
+    assert result["status"] == "ambiguous"
+    assert result["count"] == 2
