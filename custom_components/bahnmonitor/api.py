@@ -28,10 +28,12 @@ class BahnApi:
             async with asyncio.timeout(18):
                 async with self._session.get(
                     f"{API_URL}{path}", params=params,
-                    headers={"User-Agent": "HomeAssistant-Bahnmonitor/0.1 (personal timetable monitor)"},
+                    headers={"User-Agent": "Bahnmonitor/0.1.3 (+https://github.com/adrianwieg/ha-bahnmonitor)"},
                 ) as response:
                     if response.status == 429:
                         raise BahnApiError("Fahrplandienst begrenzt Anfragen (HTTP 429)")
+                    if response.status in (502, 503, 504):
+                        raise BahnApiError(f"Fahrplandienst vorübergehend nicht verfügbar (HTTP {response.status})")
                     response.raise_for_status()
                     return await response.json()
         except (TimeoutError, ClientError, ValueError) as exc:
