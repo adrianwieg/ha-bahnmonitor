@@ -39,6 +39,7 @@ class BahnCoordinator(DataUpdateCoordinator):
         self._last_error: str | None = None
         self._last_v6_attempt: datetime | None = None
         self._route_observations: dict[str, dict] = {}
+        self._history_store = None
         self._dbf_debug: dict = {
             "status": "not_checked",
             "reason": "No departure in realtime window has been checked yet",
@@ -226,6 +227,7 @@ class BahnCoordinator(DataUpdateCoordinator):
         errors: list[str] = []
         successful: list[str] = []
         upcoming: list[dict] = []
+        observations_changed = False
         for direction, station_id, origin, destination in (
             ("same", self.settings["origin_id"],
              self.settings["origin"], self.settings["destination"]),
@@ -246,10 +248,19 @@ class BahnCoordinator(DataUpdateCoordinator):
                 previous = self._route_observations.get(key)
                 if previous is None or row["observed_at"] >= previous.get("observed_at", ""):
                     self._route_observations[key] = row
+                    observations_changed = True
             upcoming.extend(collect_upcoming(
                 board, direction=direction, origin=origin,
                 destination=destination, now=now,
             ))
+
+        if observations_changed and self._history_store is not None:
+            self._history_store.async_delay_save(
+                lambda: {
+                    "observations": list(self._route_observations.values()),
+                },
+                120,
+            )
 
         data = summarise(
             list(self._route_observations.values()), target=target_for_summary,
