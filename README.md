@@ -2,7 +2,18 @@
 
 Custom Integration zur Überwachung wiederkehrender Zugfahrten und der Streckenlage. Entwickelt für **RE 1 und RE 11 zwischen Göttingen und Leinefelde**, mit frei konfigurierbaren Start- und Zielbahnhöfen.
 
-**Version 0.3.0 – Prototyp**. Installation über HACS möglich; API- und Fahrplandaten müssen im eigenen Home Assistant praktisch geprüft werden.
+**Version 0.3.1 – Prototyp**. Installation über HACS möglich; API- und Fahrplandaten müssen im eigenen Home Assistant praktisch geprüft werden.
+
+## Stabilitätskorrekturen in v0.3.1
+
+Die Home-Assistant-Diagnose der 16:09-Fahrt vom 08.10.2026 zeigt, dass der Regionalverkehrs-GTFS-Feed geladen ist und den RE 1 Göttingen → Leinefelde für 16:09–16:42 Uhr enthält. Für Dienstag (13.10.) und Mittwoch (14.10.) fehlt dagegen noch ein zugeordneter GTFS-Treffer; der v6-Dienst antwortet mit HTTP 503.
+
+- **Streckenlage:** Der Fehler, durch den der Status `Stark gestört` fälschlich als `Abfahrtsprognose` erschien, ist korrigiert. Die Begründung erwähnt weiterhin ausdrücklich, ob eine frühere Fahrt oder eine bevorstehende Prognose gemeint ist.
+- **GTFS-Diagnostik je Fahrtag:** Unter `diagnostics.gtfs_schedule.recent_matches` erscheinen die Gründe für fehlende Treffer: `line_not_in_feed`, `no_active_calendar_service`, `no_matching_direct_route`, `no_departure_within_search_window`, `ambiguous_multiple_departures` oder `matched`. Angezeigt werden außerdem die nächstgelegenen Sollabfahrten und die Anzahl passender Kandidaten. Ein fehlender Treffer ist **kein bestätigter Ausfall**.
+- **Wendebahnhof:** Bei einem bestehenden Eintrag kann noch `turnaround_at=legacy` stehen. Die Diagnose ergänzt `effective_turnaround_at`, damit die tatsächlich verwendete Einstellung sichtbar wird. Unter **Konfigurieren** kann Start, Ziel oder keiner ausdrücklich gewählt werden.
+- **Sicherere Binärsensoren:** Bei reinen GTFS-Sollfahrten bleiben **Zugausfall** und **Mögliche Folgeverspätung** als nicht verfügbar markiert, statt ein scheinbares „alles gut“ zu melden. Ein nicht bestätigter Linienabgleich darf ebenfalls keine bestätigte Zugausfallinformation erzeugen.
+
+Bitte nach Update auf v0.3.1 eine neue **Diagnose herunterladen**. Die neuen `recent_matches`-Werte für 13.10. und 14.10. helfen, den Grund für die fehlenden Fahrten gezielt zu beheben. Die GTFS-Zusatzdiagnose ist keine operative Zugmeldung.
 
 ## Installation
 
