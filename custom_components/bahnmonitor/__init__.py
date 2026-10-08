@@ -34,7 +34,7 @@ async def async_setup_entry(hass, entry):
         stored = None
 
     if isinstance(stored, dict):
-        for item in stored.get("observations", []):
+        for item in (stored.get("observations") or []):
             if not isinstance(item, dict):
                 continue
             try:
