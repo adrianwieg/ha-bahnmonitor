@@ -26,7 +26,7 @@ cards:
       ## 🔴 Fahrt fällt aus
       {% elif status == 'Planmäßig' %}
       ## 🔵 {{ departure }} · Planmäßig
-      {% elif 'Echtzeit ab ' in status %}
+      {% elif 'Zugprognose ab ' in status %}
       ## 🕒 {{ planned }} · {{ status }}
       {% elif status == 'Zuordnung unbestätigt' %}
       ## ⚪ {{ departure }} · Möglicher Zugtreffer
@@ -70,7 +70,7 @@ cards:
         vertical: true
 
   - type: markdown
-    title: "🚦 Streckenlage vor meiner Fahrt"
+    title: "🚦 Streckenlage heute · beide Richtungen"
     content: |
       {% set id = 'sensor.pendlerzug_streckenlage' %}
       {% set status = states(id) %}
@@ -91,6 +91,8 @@ cards:
       {% endif %}
 
       {{ summary }}
+
+      *Die Strecke wird ganztägig überwacht. Die Werte sind kein Beweis für eine spätere Verspätung.*
 
       **Meine Richtung:** {{ same.get('count', 0) }} Züge, davon {{ same.get('delayed_count', 0) }} verspätet
 
@@ -116,8 +118,21 @@ cards:
       {% endfor %}
       {% endif %}
 
+      {% if same.get('current_departures') or rev.get('current_departures') %}
+      **Aktuelle Abfahrtsprognosen (nächste 45 Minuten)**
+
+      | Richtung | Linie | Soll | Meldung |
+      |:---|:---|:---|---:|
+      {% for t in same.get('current_departures', []) %}
+      | Meine | {{ t.line }} | {{ as_datetime(t.scheduled_departure).strftime('%H:%M') }} | {{ 'Ausfall' if t.cancelled else ('+' ~ t.delay_minutes ~ ' Min' if t.delay_minutes is number and t.delay_minutes > 0 else (t.delay_minutes ~ ' Min' if t.delay_minutes is number else 'Unbekannt')) }} |
+      {% endfor %}
+      {% for t in rev.get('current_departures', []) %}
+      | Gegenrichtung | {{ t.line }} | {{ as_datetime(t.scheduled_departure).strftime('%H:%M') }} | {{ 'Ausfall' if t.cancelled else ('+' ~ t.delay_minutes ~ ' Min' if t.delay_minutes is number and t.delay_minutes > 0 else (t.delay_minutes ~ ' Min' if t.delay_minutes is number else 'Unbekannt')) }} |
+      {% endfor %}
+      {% endif %}
+
       {% if source != 'online' %}
-      *Datenabdeckung: {{ source }} – weniger als drei frühere Züge pro Richtung sind möglich.*
+      *Datenabdeckung: {{ source }} – einzelne Abfahrten können fehlen.*
       {% endif %}
       *Die Streckenlage ist ein Indikator, keine bestätigte Folgeverspätung oder Fahrzeugdurchbindung.*
 
