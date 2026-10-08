@@ -94,6 +94,9 @@ def test_503_keeps_entry_loaded_and_throttles_requests(monkeypatch):
 
     first = asyncio.run(coordinator._async_update_data())
     assert first["provider_status"] == "unavailable"
+    assert first["route_health"]["status_code"] == "scheduled_monitoring"
+    assert first["route_health"]["status"] == "Startet um 08:00"
+    assert first["route_health"]["monitoring_starts_at"] == "2026-10-08T08:00:00+02:00"
     assert first["diagnostics"]["realtime_dbf"]["status"] == "skipped"
     assert first["diagnostics"]["realtime_dbf"]["reason"] == "outside_realtime_window"
     assert first["diagnostics"]["future_timetable"]["status"] == "backoff"
@@ -167,3 +170,37 @@ def test_iris_data_remains_fresh_during_v6_outage(monkeypatch):
     assert result["journeys"][0]["stale"] is False
     assert result["journeys"][0]["line_match"] == "time_destination_unconfirmed"
     assert all(item["status"] == "unknown" for item in result["journeys"][1:])
+
+
+
+def test_1609_realtime_starts_at_1209_not_error(monkeypatch):
+    """Reproduce Home Assistant diagnostics for a 16:09 outbound at 07:52."""
+    code, api_error = load_coordinator(monkeypatch)
+    original_now = sys.modules["homeassistant.util.dt"].now
+    sys.modules["homeassistant.util.dt"].now = lambda: datetime(
+        2026, 10, 8, 7, 52, tzinfo=ZoneInfo("Europe/Berlin")
+    )
+    try:
+        api = Provider(api_error)
+        settings = {
+            "departure_time": "16:09",
+            "weekdays": "1,2,3",
+            "window": 20,
+            "origin_id": "8000128",
+            "destination_id": "8010203",
+            "origin": "Göttingen",
+            "destination": "Leinefelde",
+            "line": "RE 1",
+            "turnaround": True,
+        }
+        coordinator = code.BahnCoordinator(None, api, settings, "1609")
+        data = asyncio.run(coordinator._async_update_data())
+        assert api.calls == 1
+        assert data["provider_status"] == "unavailable"
+        assert data["journeys"][0]["scheduled_departure"] == "2026-10-08T16:09:00+02:00"
+        assert data["route_health"]["status"] == "Startet um 12:09"
+        assert data["route_health"]["monitoring_starts_at"] == "2026-10-08T12:09:00+02:00"
+        assert data["route_health"]["source_status"] == "not_started"
+        assert data["route_health"]["sample_count"] == 0
+    finally:
+        sys.modules["homeassistant.util.dt"].now = original_now
