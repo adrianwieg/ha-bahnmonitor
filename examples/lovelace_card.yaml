@@ -96,18 +96,20 @@ cards:
 
       {{ summary }}
 
+      **Einordnung der Meldungen:** {{ state_attr(id, 'sample_count') or 0 }} mit vergangener Soll- und Prognosezeit · {{ state_attr(id, 'awaiting_count') or 0 }} trotz verstrichener Sollzeit noch erwartet · {{ state_attr(id, 'upcoming_scheduled_count') or 0 }} bevorstehende Sollabfahrten.
+
       **Warum diese Einstufung?**
 
       {{ state_attr(id, 'reason') or 'Noch keine erklärbaren Zugmeldungen verfügbar.' }}
 
       *Die Strecke wird ganztägig überwacht. Die Werte sind kein Beweis für eine spätere Verspätung.*
 
-      **Meine Richtung:** {{ same.get('count', 0) }} Züge, davon {{ same.get('delayed_count', 0) }} verspätet
+      **Meine Richtung:** {{ same.get('count', 0) }} frühere Soll-/Prognosezeiten, {{ same.get('delayed_count', 0) }} mit Verspätung
 
-      **Gegenrichtung:** {{ rev.get('count', 0) }} Züge, davon {{ rev.get('delayed_count', 0) }} verspätet
+      **Gegenrichtung:** {{ rev.get('count', 0) }} frühere Soll-/Prognosezeiten, {{ rev.get('delayed_count', 0) }} mit Verspätung
 
       {% if same.get('trains') %}
-      **↗ Meine Richtung**
+      **↗ Meine Richtung · Soll- und Prognosezeit vergangen**
 
       | Zug | Abfahrt | Verspätung |
       |:---|:---|---:|
@@ -117,7 +119,7 @@ cards:
       {% endif %}
 
       {% if rev.get('trains') %}
-      **↙ Gegenrichtung**
+      **↙ Gegenrichtung · Soll- und Prognosezeit vergangen**
 
       | Zug | Abfahrt | Verspätung |
       |:---|:---|---:|
@@ -127,7 +129,7 @@ cards:
       {% endif %}
 
       {% if same.get('current_departures') or rev.get('current_departures') %}
-      **Aktuelle Abfahrtsprognosen (nächste 45 Minuten)**
+      **Noch erwartete und bevorstehende Abfahrten**
 
       | Richtung | Linie | Soll | Meldung |
       |:---|:---|:---|---:|
