@@ -302,3 +302,36 @@ def test_delayed_train_moves_out_of_awaiting_only_after_predicted_time():
     assert early["sample_count"] == 0
     assert late["awaiting_count"] == 0
     assert late["sample_count"] == 1
+
+
+
+def test_reason_uses_station_names_instead_of_hin_und_rueckweg():
+    now, target = at(15, 17), at(16, 9)
+    previous = [{
+        "direction": "reverse",
+        "origin": "Leinefelde",
+        "destination": "Göttingen",
+        "line": "RE 1",
+        "train": "RE RE1",
+        "scheduled_departure": at(14, 43).isoformat(),
+        "delay_minutes": 12,
+        "cancelled": False,
+        "observed_at": now.isoformat(),
+    }]
+    future = [{
+        "direction": "reverse",
+        "origin": "Leinefelde",
+        "destination": "Göttingen",
+        "line": "RE 1",
+        "train": "RE RE1",
+        "scheduled_departure": at(15, 18).isoformat(),
+        "delay_minutes": 18,
+        "cancelled": False,
+        "observed_at": now.isoformat(),
+    }]
+    result = health.summarise(previous, target=target, now=now, upcoming=future)
+    assert result["status"] == "Stark gestört"
+    assert "Leinefelde → Göttingen" in result["reason"]
+    assert "15:18" in result["reason"]
+    assert "Hinrichtung" not in result["reason"]
+    assert "Gegenrichtung" not in result["reason"]
