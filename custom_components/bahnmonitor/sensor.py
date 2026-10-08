@@ -4,7 +4,7 @@ from __future__ import annotations
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .presentation import format_journey
+from .presentation import format_journey, hhmm as result_time
 
 
 async def async_setup_entry(hass, entry, async_add_entities):
@@ -41,12 +41,54 @@ class BahnJourneySensor(BahnEntity):
     def _display(self):
         data = self.coordinator.data or {}
         trips = data.get("journeys") or []
-        return format_journey(
-            trips[0] if trips else None,
+        trip = trips[0] if trips else None
+        result = format_journey(
+            trip,
             line=self.coordinator.settings["line"],
             origin=self.coordinator.settings["origin"],
             destination=self.coordinator.settings["destination"],
         )
+        route_health = data.get("route_health") or {}
+        start = route_health.get("monitoring_starts_at")
+        if (
+            trip
+            and trip.get("status") in ("unknown", "not_found")
+            and not trip.get("source")
+            and route_health.get("source_status") == "not_started"
+            and start
+        ):
+            # Configured departure is not a verified DB timetable.
+            start_hhmm = result_time(start)
+            result["display_status"] = f"Echtzeit ab {start_hhmm}"
+            result["display_note"] = (
+                f"Zugbeobachtung startet um {start_hhmm} Uhr; "
+                "16:09 ist keine bestätigte Fahrplanzeit."
+                if self.coordinator.settings.get("departure_time") == "16:09"
+                else f"Zugbeobachtung startet um {start_hhmm} Uhr. "
+                     "Die bisherige Zeit stammt nur aus deiner Konfiguration."
+            )
+            result["display_summary"] = (
+                f"{self.coordinator.settings['line']} · "
+                f"{self.coordinator.settings['origin']} → "
+                f"{self.coordinator.settings['destination']} · "
+                f"{result['display_planned']} Uhr konfiguriert · "
+                f"Echtzeitprüfung ab {start_hhmm} Uhr"
+            )
+        elif trip and trip.get("status") in ("unknown", "not_found"):
+            result["display_note"] = (
+                "Fahrplan- oder Echtzeitdaten fehlen. "
+                "Die angezeigte Abfahrtszeit ist nur konfiguriert."
+            )
+        else:
+            result["display_note"] = (
+                "Aktuelle Angabe stammt vom Fahrplandienst."
+                if trip and trip.get("source") and not trip.get("stale")
+                else "Daten derzeit nicht verifiziert."
+            )
+        result["configured_departure_time"] = self.coordinator.settings.get("departure_time")
+        result["realtime_starts_at"] = start
+        result["timetable_confirmed"] = bool(trip and trip.get("source"))
+        return result
 
     @property
     def native_value(self):
@@ -104,8 +146,12 @@ class BahnProviderSensor(BahnEntity):
     @property
     def native_value(self):
         status = (self.coordinator.data or {}).get("provider_status", "not_checked")
+        if status == "unavailable":
+            route_health = (self.coordinator.data or {}).get("route_health") or {}
+            if route_health.get("source_status") == "not_started":
+                return "7-Tage-Auskunft gestört"
+            return "Fahrplandaten gestört"
         return {
-            "unavailable": "Gestört",
             "partial": "Teilweise verfügbar",
             "online": "Online",
             "not_checked": "Noch nicht geprüft",
