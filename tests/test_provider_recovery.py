@@ -281,3 +281,93 @@ def test_corridor_observations_request_coalesced_persistence(monkeypatch):
         assert observed[0]["scheduled_departure"] == "2026-10-08T07:20:00+02:00"
     finally:
         clock.now = original_now
+
+
+
+def test_configurable_turnaround_origin_is_not_hardcoded_gottingen(monkeypatch):
+    code, error = load_coordinator(monkeypatch)
+
+    class BoardProvider:
+        async def dbf_board(self, station, mode="dep"):
+            assert station == "8010203" and mode == "arr"
+            return [{
+                "train": "RE RE11",
+                "scheduledArrival": "16:00",
+                "delayArrival": 12,
+                "isCancelled": False,
+            }]
+
+    settings = {
+        "origin": "Leinefelde",
+        "destination": "Göttingen",
+        "origin_id": "8010203",
+        "destination_id": "8000128",
+        "line": "RE 11",
+        "turnaround_at": "origin",
+        "min_turn_minutes": 8,
+        "max_turn_minutes": 35,
+    }
+    coordinator = code.BahnCoordinator(None, BoardProvider(), settings, "other-end")
+    result = asyncio.run(coordinator._check_dbf_turnaround(
+        datetime(2026, 10, 8, 16, 9, tzinfo=ZoneInfo("Europe/Berlin")),
+        "RE 11",
+    ))
+    assert result["turnaround_station"] == "Leinefelde"
+    assert result["candidate_count"] == 1
+    assert result["risk"] is True
+    assert result["confirmed_vehicle"] is False
+
+
+def test_turnaround_at_destination_does_not_invent_previous_vehicle(monkeypatch):
+    code, error = load_coordinator(monkeypatch)
+
+    class NoNetwork:
+        async def dbf_board(self, *args, **kwargs):
+            raise AssertionError("Destination turnaround is not a pre-departure vehicle")
+
+    settings = {
+        "origin": "Leinefelde",
+        "destination": "Göttingen",
+        "origin_id": "8010203",
+        "destination_id": "8000128",
+        "line": "RE 1",
+        "turnaround_at": "destination",
+    }
+    coordinator = code.BahnCoordinator(None, NoNetwork(), settings, "dest-turn")
+    result = asyncio.run(coordinator._check_dbf_turnaround(
+        datetime(2026, 10, 8, 16, 9, tzinfo=ZoneInfo("Europe/Berlin")),
+        "RE 1",
+    ))
+    assert result["status"] == "not_applicable"
+    assert result["turnaround_station"] == "Göttingen"
+    assert result["risk"] is None
+
+
+def test_ambiguous_inbound_arrivals_never_create_positive_risk(monkeypatch):
+    code, error = load_coordinator(monkeypatch)
+
+    class BoardProvider:
+        async def dbf_board(self, station, mode="dep"):
+            return [
+                {"train": "RE RE1", "scheduledArrival": "16:00", "delayArrival": 12},
+                {"train": "RE RE1", "scheduledArrival": "15:58", "delayArrival": 15},
+            ]
+
+    settings = {
+        "origin": "Göttingen",
+        "destination": "Leinefelde",
+        "origin_id": "8000128",
+        "destination_id": "8010203",
+        "line": "RE 1",
+        "turnaround_at": "origin",
+        "min_turn_minutes": 8,
+        "max_turn_minutes": 35,
+    }
+    coordinator = code.BahnCoordinator(None, BoardProvider(), settings, "ambiguous-turn")
+    result = asyncio.run(coordinator._check_dbf_turnaround(
+        datetime(2026, 10, 8, 16, 9, tzinfo=ZoneInfo("Europe/Berlin")),
+        "RE 1",
+    ))
+    assert result["status"] == "ambiguous"
+    assert result["risk"] is None
+    assert result["candidate_count"] == 2
