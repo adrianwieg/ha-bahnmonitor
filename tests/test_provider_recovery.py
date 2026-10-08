@@ -423,3 +423,72 @@ def test_static_gtfs_plan_does_not_depend_on_failing_v6(monkeypatch):
         for item in result["journeys"]
     )
     assert result["diagnostics"]["gtfs_schedule"]["feed_loaded"] is True
+
+
+def test_nonblocking_first_snapshot_never_uses_network(monkeypatch):
+    """HA setup should not wait for a 38-second GTFS feed download."""
+    code, api_error = load_coordinator(monkeypatch)
+
+    class NoNetwork:
+        async def dbf_board(self, *args, **kwargs):
+            raise AssertionError("IRIS called during initial entity registration")
+
+        async def departures(self, *args, **kwargs):
+            raise AssertionError("7-day provider called during setup")
+
+    class NoGtfs:
+        async def find(self, *args, **kwargs):
+            raise AssertionError("GTFS download invoked during startup")
+
+    coordinator = code.BahnCoordinator(None, NoNetwork(), {
+        "departure_time": "16:09", "weekdays": "1,2,3",
+        "origin": "Göttingen", "destination": "Leinefelde",
+        "origin_id": "8000128", "destination_id": "8010203",
+        "line": "RE 1", "window": 15,
+    }, "fast-setup")
+    coordinator.gtfs = NoGtfs()
+    coordinator._startup_lightweight = True
+    data = asyncio.run(coordinator._async_update_data())
+    assert data["provider_status"] == "not_checked"
+    assert data["route_health"]["status"] == "Wird geladen"
+    assert data["diagnostics"]["setup_mode"] == "non_blocking_initial_snapshot"
+    assert data["journeys"]
+    assert all(item["status"] == "unknown" for item in data["journeys"])
+    assert coordinator._last_full_check is None
+
+
+def test_gtfs_no_match_keeps_explanation_during_503(monkeypatch):
+    """Missing direct GTFS trips must be described, never asserted cancelled."""
+    code, api_error = load_coordinator(monkeypatch)
+
+    class NoGtfsMatch:
+        @property
+        def diagnostic(self):
+            return {"feed_loaded": True, "last_error": None}
+
+        async def find_explained(self, settings, when, tolerance):
+            return None, {
+                "reason": "no_departure_within_search_window",
+                "nearest_planned_departures": ["2026-10-08T20:09:00+02:00"],
+                "nearest_origin_departures": [
+                    {"time": "2026-10-08T16:09:00+02:00",
+                     "last_stop": "Heilbad Heiligenstadt"},
+                ],
+            }
+
+    coordinator = code.BahnCoordinator(None, Provider(api_error), {
+        "departure_time": "16:09", "weekdays": "1,2,3",
+        "origin": "Göttingen", "destination": "Leinefelde",
+        "origin_id": "8000128", "destination_id": "8010203",
+        "line": "RE 1", "window": 15, "history_enabled": False,
+    }, "missing-re")
+    coordinator.gtfs = NoGtfsMatch()
+    data = asyncio.run(coordinator._async_update_data())
+    first = data["journeys"][0]
+    assert first["status"] == "unknown"
+    assert first["gtfs_match_reason"] == "no_departure_within_search_window"
+    assert "20:09" in first["message"]
+    assert first["gtfs_origin_services"][0]["last_stop"] == "Heilbad Heiligenstadt"
+    assert first.get("status") != "cancelled"
+    assert first["timetable_confirmed"] is False
+    assert data["provider_error"] and "503" in data["provider_error"]
