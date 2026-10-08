@@ -56,7 +56,8 @@ def goes_to_destination(entry: dict, destination: str) -> bool:
 
 def matches_line(train: str | None, line: str) -> bool:
     """Treat RE1/RE 1 as equal without confusing RE 1 with RE 11."""
-    actual, expected = norm(train), norm(line)
+    actual = re.sub(r"\s+", "", train or "").upper()
+    expected = re.sub(r"\s+", "", line or "").upper()
     return bool(expected) and (actual == expected or actual.startswith(expected + "("))
 
 
