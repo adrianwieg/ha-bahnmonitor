@@ -10,7 +10,7 @@ from homeassistant.util import dt as dt_util
 
 from .api import BahnApi, BahnApiError
 from .gtfs import GtfsError
-from .dbf import board_departure, incoming_candidates
+from .dbf import board_departure, incoming_candidates, match_inbound_origin
 from .route_health import collect_previous, collect_upcoming, observation_key, summarise
 from .logic import (
     cancellation, delay_minutes, evaluate_turnaround, matches_departure,
@@ -534,14 +534,56 @@ class BahnCoordinator(DataUpdateCoordinator):
                     "Keine passende ankommende Fahrt derselben Linie gefunden"
                 ),
             }
+        inbound = candidates[0]
         result = evaluate_turnaround(
-            candidates[0], departure, int(self.settings["min_turn_minutes"]),
+            inbound, departure, int(self.settings["min_turn_minutes"]),
         )
+        from_station = self.settings["destination"]
+        to_station = self.settings["origin"]
+        relation = {"status": "not_checked", "confirmed_vehicle": False}
+        arrival_planned = parse_time(inbound.get("plannedWhen"))
+        if arrival_planned is not None:
+            try:
+                opposite_board = await self.api.dbf_board(
+                    self.settings["destination_id"], mode="dep",
+                )
+            except BahnApiError as exc:
+                relation = {
+                    "status": "source_unavailable",
+                    "reason": str(exc),
+                    "confirmed_vehicle": False,
+                }
+            else:
+                relation = match_inbound_origin(
+                    opposite_board, line=train_line, destination=to_station,
+                    arrival=arrival_planned,
+                )
+        # The inbound arrival and its plausible departure are from different
+        # station announcements. Do not mistake that for a vehicle identifier.
         return {
             **info, **result, "candidate_count": 1,
-            "observed_incoming_train": candidates[0].get("observed_train"),
+            "observed_incoming_train": inbound.get("observed_train"),
+            "incoming_origin_station": from_station,
+            "incoming_destination_station": to_station,
+            "incoming_departure_planned": relation.get("departure_planned"),
+            "incoming_departure_predicted": relation.get("departure_predicted"),
+            "incoming_departure_delay_minutes": relation.get(
+                "departure_delay_minutes",
+            ),
+            "incoming_scheduled_travel_minutes": relation.get(
+                "scheduled_travel_minutes",
+            ),
+            "incoming_departure_match": relation["status"],
+            "incoming_departure_candidate_count": relation.get("count", 0),
+            "outgoing_station": to_station,
+            "outgoing_destination": from_station,
+            "outgoing_planned": departure.isoformat(),
             "confirmed_vehicle": False,
-            "evidence": "same_line_plausible_turn_only",
+            "evidence": (
+                "two_station_timetable_correlated_vehicle_unconfirmed"
+                if relation["status"] == "plausible"
+                else "same_line_arrival_candidate_vehicle_unconfirmed"
+            ),
         }
 
     async def _fetch_dbf(
