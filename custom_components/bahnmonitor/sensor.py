@@ -75,10 +75,10 @@ class BahnProviderSensor(BahnEntity):
         # "unavailable" is a reserved HA entity state and appears as
         # "Nicht verfügbar" instead of a useful provider health indication.
         return {
-            "unavailable": "gestoert",
-            "partial": "teilweise_verfuegbar",
-            "online": "online",
-            "not_checked": "nicht_geprueft",
+            "unavailable": "Gestört",
+            "partial": "Teilweise verfügbar",
+            "online": "Online",
+            "not_checked": "Noch nicht geprüft",
         }.get(status, status)
 
     @property
