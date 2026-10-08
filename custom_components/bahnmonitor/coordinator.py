@@ -209,8 +209,17 @@ class BahnCoordinator(DataUpdateCoordinator):
                                 "Die konfigurierte Linie fehlt im GTFS-Feed.",
                         }.get(reason, "Keine bestätigte GTFS-Fahrt gefunden.")
                         nearest = gtfs_detail.get("nearest_planned_departures") or []
+                        origin_services = gtfs_detail.get("nearest_origin_departures") or []
                         if nearest and reason == "no_departure_within_search_window":
                             message += f" Nächste bekannte Sollabfahrt: {nearest[0][11:16]}."
+                        if reason == "no_matching_direct_route" and origin_services:
+                            candidate = origin_services[0]
+                            end = candidate.get("last_stop") or "unbekannt"
+                            time = str(candidate.get("time") or "")[11:16]
+                            message += (
+                                f" RE-Abfahrt am Startbahnhof im Feed: "
+                                f"{time} Uhr, letzter Halt {end}."
+                            )
                         cached = {
                             "date": key,
                             "status": "unknown",
