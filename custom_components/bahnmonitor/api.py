@@ -46,7 +46,7 @@ class BahnApi:
                 async with asyncio.timeout(15):
                     async with self._session.get(
                         f"https://dbf.finalrewind.org/{quote(station_id, safe='')}.json",
-                        params={"version": 3, "admode": mode, "limit": 100},
+                        params={"version": 3, "admode": mode, "limit": 100, "past": 1, "detailed": 1},
                         headers={"User-Agent": "Bahnmonitor/0.1 (+https://github.com/adrianwieg/ha-bahnmonitor)"},
                     ) as response:
                         response.raise_for_status()
