@@ -1,0 +1,112 @@
+"""Regression tests for per-direction train history and conservative risk labels."""
+from datetime import datetime
+from importlib.util import module_from_spec, spec_from_file_location
+from pathlib import Path
+import sys
+import types
+from zoneinfo import ZoneInfo
+
+ROOT = Path(__file__).resolve().parents[1] / "custom_components" / "bahnmonitor"
+PKG = "bahnmonitor_route_test"
+package = types.ModuleType(PKG)
+package.__path__ = [str(ROOT)]
+sys.modules.setdefault(PKG, package)
+
+
+def load(name):
+    spec = spec_from_file_location(f"{PKG}.{name}", ROOT / f"{name}.py")
+    module = module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+load("dbf")
+health = load("route_health")
+display = load("presentation")
+TZ = ZoneInfo("Europe/Berlin")
+
+
+def at(hour, minute):
+    return datetime(2026, 10, 8, hour, minute, tzinfo=TZ)
+
+
+def test_collect_in_both_directions_with_exact_route():
+    now, target = at(15, 56), at(16, 9)
+    own = [
+        {"train": "RE RE1", "destination": "Göttingen", "scheduledDeparture": "14:23", "delayDeparture": 6},
+        {"train": "RE RE11", "destination": "Göttingen", "scheduledDeparture": "15:22", "delayDeparture": 0},
+        {"train": "RE RE1", "destination": "Nordhausen", "scheduledDeparture": "15:13", "delayDeparture": 14},
+        {"train": "RE RE1", "destination": "Göttingen", "scheduledDeparture": "16:08", "delayDeparture": 12},
+    ]
+    other = [
+        {"train": "RE RE11", "destination": "Leinefelde", "scheduledDeparture": "14:59", "delayDeparture": 9},
+    ]
+    a = health.collect_previous(own, direction="same", origin="Leinefelde", destination="Göttingen", planned=target, now=now)
+    b = health.collect_previous(other, direction="reverse", origin="Göttingen", destination="Leinefelde", planned=target, now=now)
+    assert len(a) == 2
+    assert len(b) == 1
+    result = health.summarise(a + b, target=target, now=now)
+    assert result["status_code"] == "elevated"
+    assert result["sample_count"] == 3
+    assert result["same_direction"]["count"] == 2
+    assert result["reverse_direction"]["count"] == 1
+    assert result["delayed_count"] == 2
+    assert result["vehicle_assignment_confirmed"] is False
+
+
+def test_ambiguous_or_unobserved_trains_do_not_create_risk():
+    now, target = at(15, 56), at(16, 9)
+    board = [
+        {"train": "RE 16243", "destination": "Göttingen", "scheduledDeparture": "15:08", "delayDeparture": 17},
+        {"train": "RE RE1", "destination": "Göttingen", "scheduledDeparture": "15:22"},
+        {"train": "RE RE11", "destination": "Göttingen", "scheduledDeparture": "16:02", "delayDeparture": 20},
+    ]
+    result = health.collect_previous(board, direction="same", origin="Leinefelde", destination="Göttingen", planned=target, now=now)
+    assert result == []
+    assert health.summarise(result, target=target, now=now)["status_code"] == "no_data"
+
+
+def test_sparse_sample_not_reported_as_reliably_unaffected():
+    row = {
+        "direction": "reverse", "train": "RE RE11", "scheduled_departure": at(15, 30).isoformat(),
+        "delay_minutes": 0, "cancelled": False, "observed_at": at(15, 40).isoformat(),
+    }
+    outcome = health.summarise([row], target=at(16, 9), now=at(15, 56))
+    assert outcome["status_code"] == "limited"
+    assert outcome["confidence"] == "limited"
+
+
+def test_deduplication_prefers_recent_observation():
+    row = {
+        "direction": "same", "train": "RE RE1", "scheduled_departure": at(15, 30).isoformat(),
+        "delay_minutes": 3, "cancelled": False, "observed_at": at(15, 35).isoformat(),
+    }
+    update = {**row, "delay_minutes": 12, "observed_at": at(15, 50).isoformat()}
+    result = health.summarise([row, update], target=at(16, 9), now=at(15, 56))
+    assert result["sample_count"] == 1
+    assert result["average_delay_minutes"] == 12
+
+
+def test_display_uses_german_and_correct_clock_times():
+    trip = {
+        "status": "delayed", "stale": False,
+        "scheduled_departure": at(16, 9).isoformat(),
+        "predicted_departure": at(16, 17).isoformat(),
+        "departure_delay_minutes": 8,
+        "platform": "4", "scheduled_platform": "2",
+    }
+    result = display.format_journey(trip, line="RE 1", origin="Göttingen", destination="Leinefelde")
+    assert result["display_status"] == "Verspätet"
+    assert result["display_delay"] == "+8 Min"
+    assert result["display_departure"] == "16:17"
+    assert result["platform_changed"] is True
+
+
+def test_display_does_not_claim_unknown_train_is_confirmed():
+    trip = {
+        "status": "delayed", "line_match": "time_destination_unconfirmed",
+        "scheduled_departure": at(16, 9).isoformat(), "stale": False,
+    }
+    result = display.format_journey(trip, line="RE 1", origin="Göttingen", destination="Leinefelde")
+    assert result["display_status"] == "Zuordnung unbestätigt"
