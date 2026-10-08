@@ -101,13 +101,22 @@ def board_departure(entries: list[dict], line: str, destination: str, planned: d
         delay = int(round(delay))
     actual = scheduled + timedelta(minutes=delay) if delay is not None else None
     cancelled = bool(entry.get("isCancelled"))
+    # An inferred match cannot serve as proof that the user's specific
+    # RE 1 / RE 11 was cancelled.
+    status = (
+        "unknown" if cancelled and confidence != "exact"
+        else "cancelled" if cancelled
+        else "delayed" if delay is not None and delay >= 3
+        else "on_time" if delay is not None else "scheduled"
+    )
     return {
         "date": planned.date().isoformat(),
         "source": "DBF/IRIS-TTS",
         "line": line if confidence == "exact" else None,
         "observed_train": entry.get("train"),
         "line_match": confidence,
-        "status": "cancelled" if cancelled else "delayed" if delay is not None and delay >= 3 else "on_time" if delay is not None else "scheduled",
+        "status": status,
+        "observed_cancellation": cancelled,
         "scheduled_departure": scheduled.isoformat(),
         "predicted_departure": actual.isoformat() if actual else None,
         "departure_delay_minutes": delay,
