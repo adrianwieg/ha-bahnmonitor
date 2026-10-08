@@ -169,3 +169,40 @@ def test_no_all_clear_on_forecast_only_with_no_delay():
     result = health.summarise([], target=target, now=now, upcoming=current)
     assert result["status_code"] == "limited"
     assert result["confidence"] == "limited"
+
+
+
+def test_route_status_explains_which_trains_caused_warning():
+    now = at(8, 10)
+    target = at(16, 9)
+    earlier = [
+        {
+            "direction": "reverse", "line": "RE 1", "train": "RE RE1",
+            "scheduled_departure": at(7, 18).isoformat(),
+            "delay_minutes": 23, "cancelled": False,
+            "observed_at": now.isoformat(),
+        },
+        {
+            "direction": "same", "line": "RE 1", "train": "RE RE1",
+            "scheduled_departure": at(8, 9).isoformat(),
+            "delay_minutes": 6, "cancelled": False,
+            "observed_at": now.isoformat(),
+        },
+    ]
+    forecast = [{
+        "direction": "reverse", "line": "RE 1", "train": "RE RE1",
+        "scheduled_departure": at(8, 43).isoformat(),
+        "delay_minutes": 6, "cancelled": False,
+        "observed_at": now.isoformat(),
+    }]
+    data = health.summarise(earlier, target=target, now=now, upcoming=forecast)
+    assert data["status"] == "Auffällig"
+    assert data["previous_delayed_count"] == 2
+    assert data["forecast_delayed_count"] == 1
+    assert data["average_delay_minutes"] == 14.5
+    assert data["maximum_delay_minutes"] == 23
+    assert "07:18 RE 1" in data["reason"]
+    assert "08:09 RE 1" in data["reason"]
+    assert "08:43 RE 1" in data["reason"]
+    assert "Abfahrtsprognose" in data["reason"]
+    assert len(data["trigger_reasons"]) == 3
