@@ -214,10 +214,13 @@ def summarise(
             (row for row in upcoming_unique.values() if row["direction"] == direction),
             key=lambda row: row["scheduled_departure"],
         )[:limit]
-        current_rows = pending_rows + future_rows
+        current_rows = (pending_rows + future_rows)[:limit]
         selected.extend(previous_rows)
         upcoming_rows.extend(current_rows)
-        overdue_rows.extend(pending_rows)
+        overdue_rows.extend(
+            row for row in current_rows
+            if row.get("observation_type") == "awaiting_departure"
+        )
         valid = [
             row["delay_minutes"] for row in previous_rows
             if row.get("delay_minutes") is not None and not row["cancelled"]
@@ -314,7 +317,8 @@ def summarise(
         cause = "Noch keine auswertbaren Meldungen vorhanden."
 
     last_seen = max(
-        (row.get("observed_at", "") for row in latest.values()), default=None,
+        (row.get("observed_at", "") for row in selected + upcoming_rows),
+        default=None,
     )
     return {
         "status_code": code,
