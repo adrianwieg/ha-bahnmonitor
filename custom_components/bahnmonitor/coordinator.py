@@ -291,13 +291,23 @@ class BahnCoordinator(DataUpdateCoordinator):
             else "partial" if successful
             else "unavailable"
         )
-        if not successful and data["sample_count"] == 0:
-            data["status"] = "Datenquelle gestört"
-            data["status_code"] = "source_unavailable"
-            data["summary"] = (
-                "Derzeit keine aktuellen Abfahrtsmeldungen abrufbar. "
-                "Die Streckenlage kann nicht bewertet werden."
+        if not successful:
+            previous_status = data["status"]
+            data["status"] = (
+                "Daten veraltet" if data["sample_count"] > 0
+                else "Datenquelle gestört"
             )
+            data["status_code"] = (
+                "stale" if data["sample_count"] > 0 else "source_unavailable"
+            )
+            data["last_known_assessment"] = previous_status
+            data["summary"] = (
+                "Die aktuellen Stationstafeln sind nicht erreichbar. "
+                "Früher gesammelte Meldungen werden nicht als aktuelle "
+                "Streckenbewertung verwendet."
+            )
+        elif len(successful) == 1:
+            data["summary"] += " Nur eine Fahrtrichtung konnte aktualisiert werden."
         data["source"] = "DBF/IRIS-TTS"
         data["source_errors"] = errors[:2]
         data["observed_directions"] = successful
