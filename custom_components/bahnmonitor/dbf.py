@@ -181,3 +181,59 @@ def board_incoming(
     """Legacy helper: latest candidate, NOT confirmed same-vehicle working."""
     candidates = incoming_candidates(entries, line, outbound, max_turn)
     return candidates[0] if candidates else None
+
+
+def match_inbound_origin(
+    entries: list[dict],
+    *,
+    line: str,
+    destination: str,
+    arrival: datetime,
+    min_travel_minutes: int = 20,
+    max_travel_minutes: int = 55,
+) -> dict:
+    """Corroborate an inbound arrival against the opposite station board.
+
+    Only a unique matching line, destination and physically plausible time
+    difference is returned. These two station announcements alone never
+    prove an actual vehicle circulation.
+    """
+    matches = []
+    for item in entries:
+        if not isinstance(item, dict) or not matches_line(item.get("train"), line):
+            continue
+        if not goes_to_destination(item, destination):
+            continue
+        departure = clock_on_day(item.get("scheduledDeparture"), arrival)
+        if departure is None:
+            continue
+        travel = (arrival - departure).total_seconds() / 60
+        if not min_travel_minutes <= travel <= max_travel_minutes:
+            continue
+        raw_delay = item.get("delayDeparture")
+        delay = (
+            round(raw_delay) if isinstance(raw_delay, (int, float))
+            and not isinstance(raw_delay, bool) else None
+        )
+        matches.append({
+            "departure_planned": departure.isoformat(),
+            "departure_predicted": (
+                (departure + timedelta(minutes=delay)).isoformat()
+                if delay is not None else None
+            ),
+            "departure_delay_minutes": delay,
+            "scheduled_travel_minutes": round(travel),
+            "train": item.get("train"),
+        })
+    if len(matches) == 1:
+        return {
+            "status": "plausible",
+            "count": 1,
+            **matches[0],
+            "confirmed_vehicle": False,
+        }
+    return {
+        "status": "ambiguous" if matches else "not_found",
+        "count": len(matches),
+        "confirmed_vehicle": False,
+    }
