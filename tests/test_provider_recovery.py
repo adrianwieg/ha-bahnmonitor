@@ -371,3 +371,55 @@ def test_ambiguous_inbound_arrivals_never_create_positive_risk(monkeypatch):
     assert result["status"] == "ambiguous"
     assert result["risk"] is None
     assert result["candidate_count"] == 2
+
+
+
+def test_static_gtfs_plan_does_not_depend_on_failing_v6(monkeypatch):
+    """A confirmed scheduled train remains visible if v6 returns HTTP 503."""
+    code, api_error = load_coordinator(monkeypatch)
+    api = Provider(api_error)
+    calls = []
+
+    class StaticFeed:
+        @property
+        def diagnostic(self):
+            return {"source": "GTFS Deutschland", "feed_loaded": True}
+
+        async def find(self, settings, when, tolerance):
+            calls.append(when)
+            return {
+                "date": when.date().isoformat(),
+                "source": "GTFS Deutschland (Sollfahrplan)",
+                "status": "scheduled",
+                "line": "RE 1",
+                "scheduled_departure": when.isoformat(),
+                "predicted_departure": None,
+                "realtime_confirmed": False,
+                "stale": False,
+                "turnaround": {"status": "not_checked", "risk": None},
+            }
+
+    coordinator = code.BahnCoordinator(None, api, {
+        "departure_time": "16:09",
+        "weekdays": "0,1,2,3,4,5,6",
+        "window": 20,
+        "origin": "Göttingen",
+        "destination": "Leinefelde",
+        "origin_id": "8000128",
+        "destination_id": "8010203",
+        "line": "RE 1",
+        "history_enabled": False,
+        "turnaround_at": "origin",
+    }, "gtfs-demo")
+    coordinator.gtfs = StaticFeed()
+    result = asyncio.run(coordinator._async_update_data())
+    assert api.calls == 0
+    assert len(calls) == 7
+    assert len(result["journeys"]) == 7
+    assert all(
+        item["source"] == "GTFS Deutschland (Sollfahrplan)"
+        and item["status"] == "scheduled"
+        and item["realtime_confirmed"] is False
+        for item in result["journeys"]
+    )
+    assert result["diagnostics"]["gtfs_schedule"]["feed_loaded"] is True
