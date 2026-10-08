@@ -22,6 +22,12 @@ class BahnBinarySensor(CoordinatorEntity, BinarySensorEntity):
         self._attr_device_info = {"identifiers": {("bahnmonitor", entry.entry_id)}, "name": entry.title, "manufacturer": "Bahnmonitor"}
 
     @property
+    def available(self):
+        # Unknown upstream status must never raise a false all-clear or warning.
+        data = self.coordinator.data or {}
+        return super().available and data.get("provider_status") == "online"
+
+    @property
     def is_on(self):
         journeys = (self.coordinator.data or {}).get("journeys") or []
         if not journeys:
