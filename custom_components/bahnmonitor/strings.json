@@ -15,7 +15,8 @@
           "window": "Abfahrts-Suchfenster (Minuten)",
           "turnaround": "Vorleistung am Wendebahnhof Göttingen prüfen",
           "min_turn_minutes": "Benötigter Wendepuffer (Minuten)",
-          "max_turn_minutes": "Maximaler Rückblick für Vorleistung (Minuten)"
+          "max_turn_minutes": "Maximaler Rückblick für Vorleistung (Minuten)",
+          "history_enabled": "Streckenlage: Frühere RE 1/RE 11 beider Richtungen auswerten"
         }
       }
     },
@@ -39,7 +40,8 @@
           "window": "Abfahrts-Suchfenster (Minuten)",
           "turnaround": "Vorleistung in Göttingen prüfen",
           "min_turn_minutes": "Benötigter Wendepuffer",
-          "max_turn_minutes": "Vorleistungs-Suchzeitraum"
+          "max_turn_minutes": "Vorleistungs-Suchzeitraum",
+          "history_enabled": "Streckenlage aktivieren"
         }
       }
     },
