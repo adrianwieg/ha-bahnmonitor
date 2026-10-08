@@ -71,7 +71,15 @@ class BahnProviderSensor(BahnEntity):
 
     @property
     def native_value(self):
-        return (self.coordinator.data or {}).get("provider_status", "not_checked")
+        status = (self.coordinator.data or {}).get("provider_status", "not_checked")
+        # "unavailable" is a reserved HA entity state and appears as
+        # "Nicht verfügbar" instead of a useful provider health indication.
+        return {
+            "unavailable": "gestoert",
+            "partial": "teilweise_verfuegbar",
+            "online": "online",
+            "not_checked": "nicht_geprueft",
+        }.get(status, status)
 
     @property
     def extra_state_attributes(self):
@@ -81,4 +89,5 @@ class BahnProviderSensor(BahnEntity):
             "retry_at": data.get("retry_at"),
             "last_successful_update": data.get("last_successful_update"),
             "checked_at": data.get("checked_at"),
+            "diagnostics": data.get("diagnostics", {}),
         }
