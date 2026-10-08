@@ -9,6 +9,7 @@ from homeassistant.helpers.storage import Store
 from .api import BahnApi
 from .const import DOMAIN
 from .coordinator import BahnCoordinator
+from .gtfs import GtfsSchedule
 from .route_health import observation_key
 
 _LOGGER = logging.getLogger(__name__)
@@ -23,7 +24,10 @@ async def async_setup_entry(hass, entry):
     data = hass.data.setdefault(DOMAIN, {})
     if "api" not in data:
         data["api"] = BahnApi(async_get_clientsession(hass))
+    if "gtfs" not in data:
+        data["gtfs"] = GtfsSchedule(hass, async_get_clientsession(hass))
     coordinator = BahnCoordinator(hass, data["api"], settings, entry.entry_id)
+    coordinator.gtfs = data["gtfs"]
 
     store = Store(hass, STORAGE_VERSION, f"bahnmonitor_route_history_{entry.entry_id}")
     coordinator._history_store = store
