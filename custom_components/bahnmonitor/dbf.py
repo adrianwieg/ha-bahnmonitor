@@ -88,8 +88,9 @@ def board_departure(entries: list[dict], line: str, destination: str, planned: d
         if distance > tolerance * 60:
             continue
 
-        line_name = entry.get("line") if isinstance(entry.get("line"), str) else entry.get("train")
-        if matches_line(line_name, line):
+        # Prefer the train's exact displayed line; the optional "line"
+        # field from a DBF version may contain only the product class "RE".
+        if matches_line(entry.get("train"), line) or matches_line(entry.get("line"), line):
             matches.append((distance, scheduled, entry))
         elif (
             # The IRIS board often displays a train run number such as
