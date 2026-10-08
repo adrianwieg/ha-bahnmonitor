@@ -10,6 +10,7 @@ from homeassistant.util import dt as dt_util
 
 from .api import BahnApi, BahnApiError
 from .dbf import board_departure, board_incoming
+from .route_health import collect_previous, observation_key, summarise
 from .logic import (
     cancellation, delay_minutes, evaluate_turnaround, matches_departure,
     parse_time, select_incoming,
@@ -37,6 +38,7 @@ class BahnCoordinator(DataUpdateCoordinator):
         self._failure_count = 0
         self._last_error: str | None = None
         self._last_v6_attempt: datetime | None = None
+        self._route_observations: dict[str, dict] = {}
         self._dbf_debug: dict = {
             "status": "not_checked",
             "reason": "No departure in realtime window has been checked yet",
@@ -157,6 +159,7 @@ class BahnCoordinator(DataUpdateCoordinator):
         if full and attempted and not failed:
             self._last_full_check = now
 
+        route_health = await self._route_health(next_planned, now)
         unavailable = failed or (
             self._blocked_until is not None and now < self._blocked_until
         )
@@ -174,6 +177,7 @@ class BahnCoordinator(DataUpdateCoordinator):
         )
         return {
             "journeys": journeys,
+            "route_health": route_health,
             "provider_status": provider_status,
             "provider_error": self._last_error if unavailable else None,
             "retry_at": self._blocked_until.isoformat() if unavailable and self._blocked_until else None,
@@ -194,6 +198,86 @@ class BahnCoordinator(DataUpdateCoordinator):
                 },
             },
         }
+
+    async def _route_health(self, target: datetime | None, now: datetime) -> dict:
+        """Observe previous RE1/RE11 trains in both directions when near a trip.
+
+        Uses the same per-station cached departure board as the trip checker.
+        No extra requests are made when the trip is far away.
+        """
+        if target is None:
+            return {
+                "status": "Keine Fahrt",
+                "status_code": "no_trip",
+                "summary": "Für die nächsten sieben Tage ist keine Fahrt konfiguriert.",
+                "sample_count": 0,
+                "same_direction": {"count": 0, "trains": []},
+                "reverse_direction": {"count": 0, "trains": []},
+                "confidence": "none",
+                "source_status": "not_checked",
+            }
+
+        self._route_observations = {
+            key: value for key, value in self._route_observations.items()
+            if value.get("scheduled_departure", "") >= (
+                target - timedelta(hours=4)
+            ).isoformat()
+        }
+        near = -timedelta(minutes=30) <= target - now <= timedelta(hours=4)
+        errors = []
+        successful = []
+        if self.settings.get("history_enabled", True) and near:
+            for direction, station_id, origin, destination in (
+                ("same", self.settings["origin_id"],
+                 self.settings["origin"], self.settings["destination"]),
+                ("reverse", self.settings["destination_id"],
+                 self.settings["destination"], self.settings["origin"]),
+            ):
+                try:
+                    board = await self.api.dbf_board(station_id, mode="dep")
+                except BahnApiError as exc:
+                    errors.append(f"{direction}: {exc}")
+                    continue
+                successful.append(direction)
+                for record in collect_previous(
+                    board,
+                    direction=direction,
+                    origin=origin,
+                    destination=destination,
+                    planned=target,
+                    now=now,
+                ):
+                    self._route_observations[observation_key(record)] = record
+
+        data = summarise(
+            list(self._route_observations.values()),
+            target=target,
+            now=now,
+            limit=3,
+        )
+        if not self.settings.get("history_enabled", True):
+            data["summary"] = "Die Streckenüberwachung ist deaktiviert."
+            data["status"] = "Deaktiviert"
+            data["status_code"] = "disabled"
+            data["source_status"] = "disabled"
+        elif near:
+            data["source_status"] = (
+                "online" if len(successful) == 2
+                else "partial" if successful
+                else "unavailable"
+            )
+        else:
+            data["source_status"] = "not_started"
+            if data["sample_count"] == 0:
+                data["summary"] = (
+                    "Die Streckenbeobachtung beginnt vier Stunden vor "
+                    "der nächsten Abfahrt."
+                )
+        data["source"] = "DBF/IRIS-TTS"
+        data["source_errors"] = errors[:2]
+        data["observed_directions"] = successful
+        data["collection_window"] = "Maximal vier Stunden vor Abfahrt; DBF liefert rückblickend ca. 60 Minuten."
+        return data
 
     async def _fetch_dbf(
         self, planned: datetime, window: int, now: datetime,
