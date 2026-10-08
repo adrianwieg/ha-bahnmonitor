@@ -26,13 +26,23 @@ cards:
       ## 🔴 Fahrt fällt aus
       {% elif status == 'Planmäßig' %}
       ## 🔵 {{ departure }} · Planmäßig
+      {% elif 'Echtzeit ab ' in status %}
+      ## 🕒 {{ planned }} · {{ status }}
       {% elif status == 'Zuordnung unbestätigt' %}
       ## ⚪ {{ departure }} · Möglicher Zugtreffer
       {% else %}
       ## ⚪ {{ status }}
       {% endif %}
 
-      **Plan:** {{ planned }} Uhr · **{{ track }}**
+      {% if state_attr(id, 'timetable_confirmed') %}
+      **Fahrplan:** {{ planned }} Uhr · **{{ track }}**
+      {% else %}
+      **Konfigurierte Abfahrt:** {{ planned }} Uhr · noch nicht durch den Fahrplandienst bestätigt
+      {% endif %}
+
+      {% if state_attr(id, 'display_note') %}
+      *{{ state_attr(id, 'display_note') }}*
+      {% endif %}
 
       {% if state_attr(id, 'platform_changed') %}
       ⚠️ Gleisänderung erkannt
@@ -40,7 +50,7 @@ cards:
       {% if trips and trips[0].get('stale') %}
       ⚠️ Angaben möglicherweise veraltet
       {% endif %}
-      <small>Hinweis: Die Zugdaten stammen aus einer externen Auskunft und sind keine Garantie.</small>
+      *Zuginformationen können sich kurzfristig ändern.*
 
   - type: grid
     columns: 3
@@ -74,6 +84,8 @@ cards:
       ### 🟠 {{ status }}
       {% elif status == 'Stark gestört' %}
       ### 🔴 {{ status }}
+      {% elif status.startswith('Startet um ') %}
+      ### 🕒 {{ status }}
       {% else %}
       ### ⚪ {{ status }}
       {% endif %}
