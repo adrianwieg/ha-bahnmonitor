@@ -75,6 +75,46 @@ def matches_line(train: str | None, line: str) -> bool:
     return bool(expected) and (actual == expected or actual.startswith(expected + "("))
 
 
+def delay_messages(entry: dict, *, limit: int = 3) -> list[dict]:
+    """Return only explicitly published DBF/IRIS delay-cause messages.
+
+    DBF's stable version-3 board exposes:
+    messages: {delay: [{timestamp: ..., text: ...}], qos: [...]}.
+    QoS messages are *not* delay causes. Never infer a cause from the
+    minutes, from a previous train, or from free-form unrelated metadata.
+    """
+    messages = entry.get("messages") if isinstance(entry, dict) else None
+    if not isinstance(messages, dict):
+        return []
+    delays = messages.get("delay")
+    if not isinstance(delays, list):
+        return []
+    found = []
+    seen = set()
+    for raw in delays[:20]:
+        if not isinstance(raw, dict):
+            continue
+        value = raw.get("text")
+        if not isinstance(value, str):
+            continue
+        text = " ".join(value.split())[:220].strip()
+        if not text or text.casefold() in seen:
+            continue
+        seen.add(text.casefold())
+        when = raw.get("timestamp")
+        found.append({
+            "text": text,
+            "timestamp": (
+                str(when)[:80] if isinstance(when, (str, int, float))
+                and not isinstance(when, bool) else None
+            ),
+            "source": "DBF/IRIS-TTS",
+        })
+        if len(found) >= max(1, min(5, limit)):
+            break
+    return found
+
+
 def board_departure(entries: list[dict], line: str, destination: str, planned: datetime, tolerance: int) -> dict | None:
     matches = []
     inferred = []
@@ -117,6 +157,7 @@ def board_departure(entries: list[dict], line: str, destination: str, planned: d
         delay = int(round(delay))
     actual = scheduled + timedelta(minutes=delay) if delay is not None else None
     cancelled = bool(entry.get("isCancelled"))
+    causes = delay_messages(entry)
     # An inferred match cannot serve as proof that the user's specific
     # RE 1 / RE 11 was cancelled.
     status = (
@@ -136,6 +177,8 @@ def board_departure(entries: list[dict], line: str, destination: str, planned: d
         "scheduled_departure": scheduled.isoformat(),
         "predicted_departure": actual.isoformat() if actual else None,
         "departure_delay_minutes": delay,
+        "delay_reasons": causes,
+        "delay_reason": causes[0]["text"] if causes else None,
         "platform": entry.get("platform"),
         "scheduled_platform": entry.get("scheduledPlatform"),
         "scheduled_arrival": None,
@@ -171,6 +214,7 @@ def incoming_candidates(
             "delay": delay * 60 if delay is not None else None,
             "cancelled": bool(entry.get("isCancelled")),
             "observed_train": entry.get("train"),
+            "delay_reasons": delay_messages(entry),
         })
     return sorted(candidates, key=lambda item: item["plannedWhen"], reverse=True)
 
@@ -233,6 +277,7 @@ def match_inbound_origin(
             "departure_delay_minutes": delay,
             "scheduled_travel_minutes": round(travel),
             "train": item.get("train"),
+            "delay_reasons": delay_messages(item),
         })
     if len(matches) == 1:
         return {
