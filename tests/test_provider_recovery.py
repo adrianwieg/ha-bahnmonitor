@@ -155,7 +155,9 @@ def test_iris_data_remains_fresh_during_v6_outage(monkeypatch):
     result = asyncio.run(coordinator._async_update_data())
     assert result["provider_status"] == "partial"
     assert result["provider_error"] and "503" in result["provider_error"]
-    assert api.dbf_calls == 1
+    # The coordinator now also samples both route directions. This mock
+    # has no shared API cache; the production BahnApi deduplicates calls.
+    assert api.dbf_calls == 3
     assert api.v6_calls == 1, "Avoid retrying a failing backend for every future day"
     assert result["journeys"][0]["status"] == "delayed"
     assert result["journeys"][0]["source"] == "DBF/IRIS-TTS"
