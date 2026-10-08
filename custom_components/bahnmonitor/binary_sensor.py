@@ -25,7 +25,14 @@ class BahnBinarySensor(CoordinatorEntity, BinarySensorEntity):
     def available(self):
         # Unknown upstream status must never raise a false all-clear or warning.
         data = self.coordinator.data or {}
-        return super().available and data.get("provider_status") == "online"
+        journeys = data.get("journeys") or []
+        return (
+            super().available
+            and data.get("provider_status") in ("online", "partial")
+            and bool(journeys)
+            and not journeys[0].get("stale", True)
+            and journeys[0].get("status") not in ("unknown", "not_found")
+        )
 
     @property
     def is_on(self):
