@@ -1,20 +1,23 @@
-"""Train status and provider health sensors."""
+"""Readable Bahnmonitor and corridor-condition sensors."""
 from __future__ import annotations
 
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
+
+from .presentation import format_journey
 
 
 async def async_setup_entry(hass, entry, async_add_entities):
     coordinator = entry.runtime_data
     async_add_entities([
         BahnJourneySensor(coordinator, entry),
+        BahnRouteHealthSensor(coordinator, entry),
         BahnProviderSensor(coordinator, entry),
     ])
 
 
 class BahnEntity(CoordinatorEntity, SensorEntity):
-    """Common device metadata for the configured monitored train."""
+    """Stable device metadata across the configured trip's sensors."""
 
     _attr_has_entity_name = True
 
@@ -35,20 +38,28 @@ class BahnJourneySensor(BahnEntity):
         super().__init__(coordinator, entry)
         self._attr_unique_id = f"{entry.entry_id}_next_journey"
 
+    def _display(self):
+        data = self.coordinator.data or {}
+        trips = data.get("journeys") or []
+        return format_journey(
+            trips[0] if trips else None,
+            line=self.coordinator.settings["line"],
+            origin=self.coordinator.settings["origin"],
+            destination=self.coordinator.settings["destination"],
+        )
+
     @property
     def native_value(self):
-        data = self.coordinator.data or {}
-        if data.get("provider_status") == "unavailable":
-            return "Datenquelle nicht erreichbar"
-        upcoming = data.get("journeys") or []
-        if not upcoming:
+        trips = (self.coordinator.data or {}).get("journeys") or []
+        if not trips:
             return "Keine geplante Fahrt"
-        return upcoming[0].get("status", "unknown")
+        return self._display()["display_status"]
 
     @property
     def extra_state_attributes(self):
         data = self.coordinator.data or {}
         return {
+            **self._display(),
             "journeys": data.get("journeys", []),
             "provider_status": data.get("provider_status", "not_checked"),
             "provider_error": data.get("provider_error"),
@@ -59,6 +70,27 @@ class BahnJourneySensor(BahnEntity):
             "origin": self.coordinator.settings["origin"],
             "destination": self.coordinator.settings["destination"],
         }
+
+
+class BahnRouteHealthSensor(BahnEntity):
+    _attr_name = "Streckenlage"
+    _attr_icon = "mdi:train-car"
+
+    def __init__(self, coordinator, entry):
+        super().__init__(coordinator, entry)
+        self._attr_unique_id = f"{entry.entry_id}_route_health"
+
+    @property
+    def native_value(self):
+        return (self.coordinator.data or {}).get("route_health", {}).get(
+            "status", "Keine Daten"
+        )
+
+    @property
+    def extra_state_attributes(self):
+        # Current realtime evidence only. Never present corridor context
+        # as a vehicle circulation or guaranteed future delay forecast.
+        return dict((self.coordinator.data or {}).get("route_health") or {})
 
 
 class BahnProviderSensor(BahnEntity):
@@ -72,8 +104,6 @@ class BahnProviderSensor(BahnEntity):
     @property
     def native_value(self):
         status = (self.coordinator.data or {}).get("provider_status", "not_checked")
-        # "unavailable" is a reserved HA entity state and appears as
-        # "Nicht verfügbar" instead of a useful provider health indication.
         return {
             "unavailable": "Gestört",
             "partial": "Teilweise verfügbar",
