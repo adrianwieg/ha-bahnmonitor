@@ -110,3 +110,62 @@ def test_display_does_not_claim_unknown_train_is_confirmed():
     }
     result = display.format_journey(trip, line="RE 1", origin="Göttingen", destination="Leinefelde")
     assert result["display_status"] == "Zuordnung unbestätigt"
+
+
+def test_morning_records_influence_1609_corridor_but_not_train_forecast():
+    now = at(7, 52)
+    target = at(16, 9)
+    earlier = health.collect_previous(
+        [
+            {"train": "RE RE1", "destination": "Leinefelde",
+             "scheduledDeparture": "07:20", "delayDeparture": 8},
+            {"train": "RE RE11", "destination": "Leinefelde",
+             "scheduledDeparture": "07:43", "delayDeparture": 0},
+        ],
+        direction="same", origin="Göttingen", destination="Leinefelde",
+        planned=target, now=now,
+    )
+    later = health.collect_upcoming(
+        [
+            {"train": "RE RE11", "destination": "Göttingen",
+             "scheduledDeparture": "08:09", "delayDeparture": 12},
+        ],
+        direction="reverse", origin="Leinefelde", destination="Göttingen",
+        now=now,
+    )
+    assert len(earlier) == 2
+    assert len(later) == 1
+    result = health.summarise(earlier, target=target, now=now, upcoming=later)
+    assert result["status"] == "Auffällig"
+    assert result["same_direction"]["count"] == 2
+    assert result["reverse_direction"]["current_departures"][0]["delay_minutes"] == 12
+    assert result["monitoring_scope"] == "today_continuous"
+    assert result["vehicle_assignment_confirmed"] is False
+
+
+def test_yesterday_is_not_reused_for_today_or_tomorrow():
+    now = at(7, 52)
+    yesterday = {
+        "direction": "same", "train": "RE RE1",
+        "scheduled_departure": "2026-10-07T23:50:00+02:00",
+        "delay_minutes": 45, "cancelled": False,
+        "observed_at": "2026-10-07T23:55:00+02:00",
+    }
+    result = health.summarise(
+        [yesterday], target=at(16, 9), now=now,
+    )
+    assert result["status_code"] == "no_data"
+    assert result["sample_count"] == 0
+
+
+def test_no_all_clear_on_forecast_only_with_no_delay():
+    now, target = at(7, 52), at(16, 9)
+    current = health.collect_upcoming(
+        [{"train": "RE RE1", "destination": "Leinefelde",
+          "scheduledDeparture": "08:05", "delayDeparture": 0}],
+        direction="same", origin="Göttingen",
+        destination="Leinefelde", now=now,
+    )
+    result = health.summarise([], target=target, now=now, upcoming=current)
+    assert result["status_code"] == "limited"
+    assert result["confidence"] == "limited"
