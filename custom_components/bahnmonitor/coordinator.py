@@ -9,7 +9,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 
 from .api import BahnApi, BahnApiError
-from .dbf import board_departure, board_incoming
+from .dbf import board_departure, incoming_candidates
 from .route_health import collect_previous, collect_upcoming, observation_key, summarise
 from .logic import (
     cancellation, delay_minutes, evaluate_turnaround, matches_departure,
@@ -331,6 +331,85 @@ class BahnCoordinator(DataUpdateCoordinator):
         )
         return data
 
+    def _turnaround_choice(self) -> str:
+        """Apply the GUI choice; keep old entries without an option compatible."""
+        if "turnaround_at" in self.settings:
+            value = self.settings["turnaround_at"]
+            return value if value in ("origin", "destination", "off") else "off"
+        if not self.settings.get("turnaround", True):
+            return "off"
+        return (
+            "origin"
+            if self.settings.get("origin", "").casefold() == "göttingen"
+            else "off"
+        )
+
+    def _turnaround_state(self) -> dict:
+        choice = self._turnaround_choice()
+        selected = (
+            self.settings["origin"] if choice == "origin"
+            else self.settings["destination"] if choice == "destination"
+            else None
+        )
+        return {
+            "status": "not_checked",
+            "risk": None,
+            "turnaround_station": selected,
+            "turnaround_choice": choice,
+            "confirmed_vehicle": False,
+        }
+
+    async def _check_dbf_turnaround(
+        self, departure: datetime, train_line: str,
+    ) -> dict:
+        info = self._turnaround_state()
+        choice = info["turnaround_choice"]
+        if choice == "off":
+            return {**info, "status": "disabled", "reason": "Vorleistungsprüfung deaktiviert"}
+        if choice == "destination":
+            return {
+                **info, "status": "not_applicable",
+                "reason": (
+                    "Der ausgewählte Wendebahnhof liegt am Ziel dieser Fahrt. "
+                    "Sein ankommender Umlauf ist keine nachgewiesene Vorleistung "
+                    "für die Abfahrt am Startbahnhof."
+                ),
+            }
+        # Only a turn at the train's departure station can delay departure
+        # through a possible incoming vehicle.
+        try:
+            arrivals = await self.api.dbf_board(self.settings["origin_id"], mode="arr")
+        except BahnApiError as exc:
+            return {
+                **info, "status": "source_unavailable",
+                "reason": f"Ankunftstafel nicht verfügbar: {exc}",
+            }
+        candidates = incoming_candidates(
+            arrivals, train_line, departure,
+            int(self.settings["max_turn_minutes"]),
+        )
+        if len(candidates) != 1:
+            return {
+                **info,
+                "status": "ambiguous" if candidates else "unknown",
+                "candidate_count": len(candidates),
+                "reason": (
+                    "Mehrere ankommende Fahrten derselben Linie: "
+                    "Fahrzeugzuordnung nicht eindeutig"
+                    if candidates else
+                    "Keine passende ankommende Fahrt derselben Linie gefunden"
+                ),
+            }
+        result = evaluate_turnaround(
+            candidates[0], departure, int(self.settings["min_turn_minutes"]),
+        )
+        return {
+            **info, **result, "candidate_count": 1,
+            "observed_incoming_train": candidates[0].get("observed_train"),
+            "confirmed_vehicle": False,
+            "evidence": "same_line_plausible_turn_only",
+        }
+
     async def _fetch_dbf(
         self, planned: datetime, window: int, now: datetime,
     ) -> dict | None:
@@ -358,20 +437,9 @@ class BahnCoordinator(DataUpdateCoordinator):
                 reason="No unambiguous configured line, destination, time match",
             )
             return None
-        if settings.get("turnaround") and "göttingen" in settings["origin"].casefold():
-            max_turn = int(settings["max_turn_minutes"])
-            try:
-                arrivals = await self.api.dbf_board(settings["origin_id"], mode="arr")
-            except BahnApiError:
-                result["turnaround"] = {
-                    "status": "unknown", "risk": False,
-                    "reason": "Ankunftstafel aktuell nicht abrufbar",
-                }
-            else:
-                incoming = board_incoming(arrivals, settings["line"], planned, max_turn)
-                result["turnaround"] = evaluate_turnaround(
-                    incoming, planned, int(settings["min_turn_minutes"]),
-                )
+        result["turnaround"] = await self._check_dbf_turnaround(
+            planned, settings["line"],
+        )
         return result
 
     async def _fetch_trip(self, planned: datetime, window: int, now: datetime) -> dict:
