@@ -566,9 +566,16 @@ class BahnCoordinator(DataUpdateCoordinator):
                     "confirmed_vehicle": False,
                 }
             else:
+                inbound_delay = inbound.get("delay")
                 relation = match_inbound_origin(
                     opposite_board, line=train_line, destination=to_station,
                     arrival=arrival_planned,
+                    arrival_delay_minutes=(
+                        round(inbound_delay / 60)
+                        if isinstance(inbound_delay, (int, float))
+                        and not isinstance(inbound_delay, bool)
+                        else None
+                    ),
                 )
         # The inbound arrival and its plausible departure are from different
         # station announcements. Do not mistake that for a vehicle identifier.
