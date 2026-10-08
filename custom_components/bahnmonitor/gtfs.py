@@ -146,17 +146,32 @@ def _gtfs_datetime(day: date, text: str | None) -> datetime | None:
 def find_trip(
     data: dict, *, origin: str, destination: str,
     line: str, planned: datetime, tolerance: int,
+    diagnostic: dict | None = None,
 ) -> dict | None:
-    """Only a unique, calendar-valid GTFS trip can confirm a scheduled service."""
+    """Return only a uniquely matched service; explain missing future days.
+
+    A lack of a GTFS match is NOT evidence of a cancellation. The diagnostic
+    distinguishes no service, no matching route, incorrect expected clock time,
+    and multiple plausible trains. It never claims to know why DB runs a train.
+    """
     expected = re.sub(r"\s+", "", line).upper()
     candidates = []
+    nearest = []
+    counts = {
+        "line_trips": 0,
+        "active_trips": 0,
+        "route_matches": 0,
+        "time_candidates": 0,
+    }
     for trip in data["trips"].values():
         if re.sub(r"\s+", "", trip["line"]).upper() != expected:
             continue
-        # GTFS times past midnight can belong to the previous service day.
+        counts["line_trips"] += 1
+        # A GTFS service can run after midnight on the previous service day.
         for service_day in (planned.date(), planned.date() - timedelta(days=1)):
             if not _active(data, trip["service_id"], service_day):
                 continue
+            counts["active_trips"] += 1
             origin_stop = None
             for seq, stop_id, dep_text, arr_text in sorted(trip["stops"]):
                 name, parent = data["stops"].get(stop_id, ("", ""))
@@ -164,15 +179,38 @@ def find_trip(
                 if origin_stop is None:
                     if _station_match(name, origin) or _station_match(p_name, origin):
                         departure = _gtfs_datetime(service_day, dep_text)
-                        if departure and abs((departure - planned).total_seconds()) <= tolerance * 60:
+                        if departure:
                             origin_stop = (seq, departure)
                     continue
                 if seq <= origin_stop[0]:
                     continue
                 if _station_match(name, destination) or _station_match(p_name, destination):
                     arrival = _gtfs_datetime(service_day, arr_text)
-                    candidates.append((origin_stop[1], arrival, trip))
+                    counts["route_matches"] += 1
+                    delta = abs((origin_stop[1] - planned).total_seconds()) / 60
+                    nearest.append((delta, origin_stop[1]))
+                    if delta <= tolerance:
+                        candidates.append((origin_stop[1], arrival, trip))
                     break
+    counts["time_candidates"] = len(candidates)
+    if not counts["line_trips"]:
+        counts["reason"] = "line_not_in_feed"
+    elif not counts["active_trips"]:
+        counts["reason"] = "no_active_calendar_service"
+    elif not counts["route_matches"]:
+        counts["reason"] = "no_matching_direct_route"
+    elif not candidates:
+        counts["reason"] = "no_departure_within_search_window"
+    elif len(candidates) > 1:
+        counts["reason"] = "ambiguous_multiple_departures"
+    else:
+        counts["reason"] = "matched"
+    counts["nearest_planned_departures"] = [
+        when.isoformat()
+        for _, when in sorted(set(nearest), key=lambda x: x[0])[:3]
+    ]
+    if diagnostic is not None:
+        diagnostic.update(counts)
     if len(candidates) != 1:
         return None
     departure, arrival, trip = candidates[0]
@@ -195,12 +233,12 @@ def find_trip(
         "turnaround": {"status": "not_checked", "risk": None, "confirmed_vehicle": False},
     }
 
-
 class GtfsSchedule:
     def __init__(self, hass, session):
         self._hass = hass
         self._session = session
         self._data: dict | None = None
+        self._match_debug: dict[str, dict] = {}
         self._fetched: datetime | None = None
         self._last_error: str | None = None
         self._next_retry: datetime | None = None
@@ -214,6 +252,7 @@ class GtfsSchedule:
             "last_error": self._last_error,
             "next_retry": self._next_retry.isoformat() if self._next_retry else None,
             "feed_loaded": self._data is not None,
+            "recent_matches": dict(self._match_debug),
         }
 
     async def _ensure(self):
@@ -265,13 +304,22 @@ class GtfsSchedule:
     async def find(self, settings: dict, when: datetime, tolerance: int) -> dict | None:
         await self._ensure()
         # Feed is shared across entries. Execute trips scan in HA's thread pool.
-        result = await self._hass.async_add_executor_job(
-            lambda: find_trip(
+        def _match():
+            debug: dict = {}
+            result = find_trip(
                 self._data, origin=settings["origin"],
                 destination=settings["destination"],
                 line=settings["line"], planned=when, tolerance=tolerance,
+                diagnostic=debug,
             )
-        )
+            return result, debug
+
+        result, debug = await self._hass.async_add_executor_job(_match)
+        # Keep only the currently configured service and the nearest week.
+        key = f"{settings.get('name', settings['line'])} {when.date().isoformat()}"
+        self._match_debug[key] = debug
+        if len(self._match_debug) > 24:
+            self._match_debug = dict(list(self._match_debug.items())[-24:])
         if result is not None and self._fetched is not None:
             result["feed_fetched_at"] = self._fetched.isoformat()
             result["stale"] = (
