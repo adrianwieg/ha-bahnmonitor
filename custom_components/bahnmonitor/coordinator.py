@@ -268,11 +268,17 @@ class BahnCoordinator(DataUpdateCoordinator):
             )
         else:
             data["source_status"] = "not_started"
+            starts_at = target - timedelta(hours=4)
+            data["monitoring_starts_at"] = starts_at.isoformat()
             if data["sample_count"] == 0:
+                data["status"] = f"Startet um {starts_at:%H:%M}"
+                data["status_code"] = "scheduled_monitoring"
+                data["confidence"] = "none"
                 data["summary"] = (
-                    "Die Streckenbeobachtung beginnt vier Stunden vor "
-                    "der nächsten Abfahrt."
+                    f"Die Streckenbeobachtung startet um {starts_at:%H:%M} Uhr. "
+                    "Bis dahin liegen keine beobachteten früheren Züge vor."
                 )
+        data.setdefault("monitoring_starts_at", (target - timedelta(hours=4)).isoformat())
         data["source"] = "DBF/IRIS-TTS"
         data["source_errors"] = errors[:2]
         data["observed_directions"] = successful
