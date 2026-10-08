@@ -81,7 +81,7 @@ class BahnCoordinator(DataUpdateCoordinator):
                 near_eligible = True
                 self._dbf_debug = {
                     "status": "checking",
-                    "station_id": settings_station_id(self.settings),
+                    "station_id": str(self.settings.get("origin_id", "unknown")),
                     "line": self.settings["line"],
                     "planned_departure": planned.isoformat(),
                     "checked_at": now.isoformat(),
@@ -164,6 +164,13 @@ class BahnCoordinator(DataUpdateCoordinator):
             "partial" if unavailable and live_success else
             "unavailable" if unavailable else
             "online" if self._last_successful_update else "not_checked"
+        )
+        _LOGGER.debug(
+            "Bahnmonitor %s -> %s (%s, %s): %s, DBF=%s, next=%s, error=%s",
+            self.settings.get("origin"), self.settings.get("destination"),
+            self.settings.get("line"), self.settings.get("departure_time"),
+            provider_status, self._dbf_debug.get("status"),
+            next_planned.isoformat() if next_planned else None, self._last_error,
         )
         return {
             "journeys": journeys,
@@ -332,7 +339,3 @@ class BahnCoordinator(DataUpdateCoordinator):
             )
         return result
 
-
-def settings_station_id(settings: dict) -> str:
-    """Small diagnostic helper, avoiding leaking connection details."""
-    return str(settings.get("origin_id", "unknown"))
