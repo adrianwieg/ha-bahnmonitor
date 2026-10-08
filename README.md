@@ -1,4 +1,4 @@
-# Bahnmonitor – Home Assistant (v0.1.4, Prototyp)
+# Bahnmonitor – Home Assistant (v0.1.5, Prototyp)
 
 Überwacht wiederkehrende Verbindungen (z. B. RE 1 und RE 11 zwischen Leinefelde und Göttingen) bis zu sieben Tage im Voraus. Jede Fahrt wird als eigener GUI-Eintrag angelegt. Für Fahrten ab Göttingen kann eine **mögliche** Folgeverspätung aus einem ankommenden Zug derselben Linie abgeleitet werden. Die physische Fahrzeugdurchbindung wird **nicht** nachgewiesen.
 
@@ -42,6 +42,29 @@ Den Ordner `custom_components/bahnmonitor` nach `/config/custom_components/bahnm
 ## Ausfallsicherheit
 
 Bei Ausfall der Fern-Fahrplandaten bleibt die Integration geladen; Fahrten mit aktuellen IRIS-Daten bleiben nutzbar. Der Sensor **Fahrplandienst** meldet `partial`, wenn nur ein Teil der sieben Tage abgedeckt ist, und `unavailable`, wenn keine frischen Daten verfügbar sind. Vorhandene Werte werden bei nicht erfolgreicher Aktualisierung als `stale` gekennzeichnet. Binärsensoren werden bei fehlender oder nicht zuordenbarer Datenlage nicht fälschlich als Entwarnung ausgegeben.
+
+## Debugging und Diagnose ab v0.1.5
+
+Falls die Entitäten angelegt wurden, aber die Fahrplandaten fehlen:
+
+1. In Home Assistant **Einstellungen → Geräte & Dienste → Bahnmonitor** öffnen.
+2. Beim Eintrag über **⋮ → Diagnose herunterladen** die Diagnose-JSON exportieren.
+3. Alternativ unter **Entwicklerwerkzeuge → Zustände** den Sensor **Fahrplandienst** auswählen und dessen Attribut `diagnostics` ansehen.
+4. Besonders hilfreich: `realtime_dbf.status`, `realtime_dbf.error`, `realtime_dbf.returned_count`, `realtime_dbf.sample`, `future_timetable.last_error`, `next_scheduled_departure` und `retry_at`.
+
+Eine Abfrage der DBF-Echtzeitdaten wird nur durchgeführt, wenn die konfigurierte Abfahrt frühestens 30 Minuten vergangen oder höchstens vier Stunden entfernt ist. Bei einer bereits länger zurückliegenden Abfahrt ist `realtime_dbf.status=skipped` erwartetes Verhalten und **kein neuer Fehler**. Beim nächsten passenden Abfahrtstermin wird sie erneut geprüft.
+
+Für detaillierte Home-Assistant-Protokolle zusätzlich die folgende Einstellung unter `configuration.yaml` verwenden (bestehenden `logger:`-Block ergänzen, **nicht doppelt anlegen**):
+
+```yaml
+logger:
+  logs:
+    custom_components.bahnmonitor: debug
+```
+
+Nach einem vollständigen Neustart unter **Einstellungen → System → Protokolle** auf `bahnmonitor` filtern. Die Protokolle enthalten keine Tokens oder Zugangsdaten; vor dem Weitergeben von Diagnose-JSON kann man optional Fahrzeiten und Stationsnamen entfernen.
+
+Der Diagnosesensor **Fahrplandienst** verwendet die menschenlesbaren Zustände `Online`, `Teilweise verfügbar`, `Gestört` und `Noch nicht geprüft`; der maschinenlesbare Wert `provider_status` bleibt unverändert verfügbar.
 
 ## Sensoren und Automationen
 
