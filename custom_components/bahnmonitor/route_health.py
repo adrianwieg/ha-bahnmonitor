@@ -1,4 +1,4 @@
-"""Daily RE 1 / RE 11 corridor context from IRIS station boards.
+"""General corridor context from IRIS station boards.
 
 Always observe both directions during the day, regardless of the user's
 configured departure time. This describes today's corridor, NOT a reliable
@@ -335,7 +335,7 @@ def summarise(
         if isinstance(delay_reason, str) and delay_reason.strip():
             situation += f"; gemeldeter Grund: {delay_reason}"
         reasons.append(
-            f"{ts} {row['line']} ({route}, {observation_label}): {situation}"
+            f"{ts} {row.get('line') or row.get('train') or 'Zug'} ({route}, {observation_label}): {situation}"
         )
     if reasons:
         cause = "; ".join(reasons[:6])
