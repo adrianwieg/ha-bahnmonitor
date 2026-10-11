@@ -508,20 +508,34 @@ class BahnCoordinator(DataUpdateCoordinator):
                     "reason": "Keine automatisch belegbare Zugwende in aktuellen Stationstafeln.",
                 }
 
-    async def _detect_route_turnarounds(self, now: datetime, lines: tuple[str, ...]) -> dict:
+    async def _detect_route_turnarounds(
+        self, now: datetime, lines: tuple[str, ...],
+        departure_boards: dict[str, list[dict]] | None = None,
+    ) -> dict:
         """Observe arrival and departure boards at both endpoints, both ways."""
         boards = []
         for station, station_id, other in (
             (self.settings["origin"], self.settings["origin_id"], self.settings["destination"]),
             (self.settings["destination"], self.settings["destination_id"], self.settings["origin"]),
         ):
-            endpoint = {"station": station, "other": other,
-                        "arrivals": None, "departures": None}
-            for mode, key in (("arr", "arrivals"), ("dep", "departures")):
+            endpoint = {
+                "station": station, "other": other,
+                "arrivals": None,
+                "departures": (
+                    departure_boards.get(station_id)
+                    if departure_boards is not None else None
+                ),
+            }
+            try:
+                # The API caches the same station board for arrivals/departures.
+                endpoint["arrivals"] = await self.api.dbf_board(station_id, mode="arr")
+            except BahnApiError:
+                pass
+            if endpoint["departures"] is None and departure_boards is None:
                 try:
-                    endpoint[key] = await self.api.dbf_board(station_id, mode=mode)
+                    endpoint["departures"] = await self.api.dbf_board(station_id, mode="dep")
                 except BahnApiError:
-                    pass  # The detector exposes partial/unavailable source status.
+                    pass
             boards.append(endpoint)
         return detect_turnarounds(
             now=now, endpoints=boards, lines=lines,
@@ -529,8 +543,13 @@ class BahnCoordinator(DataUpdateCoordinator):
             max_turn_minutes=self.settings.get("max_turn_minutes", 60),
         )
 
-    async def _with_turnarounds(self, route: dict, now: datetime, lines: tuple[str, ...]) -> dict:
-        route["turnaround"] = await self._detect_route_turnarounds(now, lines)
+    async def _with_turnarounds(
+        self, route: dict, now: datetime, lines: tuple[str, ...],
+        departure_boards: dict[str, list[dict]] | None = None,
+    ) -> dict:
+        route["turnaround"] = await self._detect_route_turnarounds(
+            now, lines, departure_boards,
+        )
         return await self._with_alerts(route, now)
 
     async def _route_health(self, target: datetime | None, now: datetime) -> dict:
@@ -557,6 +576,7 @@ class BahnCoordinator(DataUpdateCoordinator):
 
         errors: list[str] = []
         successful: list[str] = []
+        boards_by_station: dict[str, list[dict]] = {}
         upcoming: list[dict] = []
         departures_all: list[dict] = []
         observations_changed = False
@@ -572,6 +592,7 @@ class BahnCoordinator(DataUpdateCoordinator):
                 errors.append(f"{direction}: {exc}")
                 continue
             successful.append(direction)
+            boards_by_station[station_id] = board
             departures_all.extend(collect_departures(
                 board, now=now, direction=direction,
                 origin=origin, destination=destination, lines=lines,
@@ -680,7 +701,7 @@ class BahnCoordinator(DataUpdateCoordinator):
             data["status"], data["sample_count"], data["current_count"],
             data["source_status"],
         )
-        return await self._with_turnarounds(data, now, lines)
+        return await self._with_turnarounds(data, now, lines, boards_by_station)
 
     def _turnaround_choice(self) -> str:
         """Apply the GUI choice; keep old entries without an option compatible."""
