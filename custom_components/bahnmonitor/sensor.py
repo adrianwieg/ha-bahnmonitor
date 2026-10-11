@@ -263,10 +263,12 @@ class BahnRouteMessagesSensor(BahnEntity):
     @property
     def native_value(self):
         route = (self.coordinator.data or {}).get("route_health") or {}
-        if route.get("alert_source_status") not in ("online", "partial"):
-            return "Datenquelle gestört"
         count = len(route.get("incidents") or [])
-        return f"{count} Meldung(en)" if count else "Keine Meldungen übermittelt"
+        if count:
+            return f"{count} Meldung(en)"
+        if route.get("alert_source_status") not in ("online", "partial"):
+            return "Verbindungsdienst nicht erreichbar"
+        return "Keine Meldungen übermittelt"
 
     @property
     def extra_state_attributes(self):
@@ -275,6 +277,8 @@ class BahnRouteMessagesSensor(BahnEntity):
             "incidents": route.get("incidents", []),
             "sev_reported": route.get("sev_reported", False),
             "source_status": route.get("alert_source_status"),
+            "sources": route.get("alert_sources", {}),
+            "board_counts": route.get("board_counts", {}),
             "last_checked": route.get("alert_checked_at"),
             "notice": route.get("alert_note"),
             "scope": route.get("alert_scope"),
