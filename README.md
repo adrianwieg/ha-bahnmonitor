@@ -10,7 +10,7 @@ Neue Monitor-Einträge benötigen nur **Name, Startbahnhof und Zielbahnhof**. Ei
 
 ### Was wird erfasst?
 
-- **Aktuelle Züge in beide Richtungen**, auch solche ohne Verspätung: geplante und prognostizierte Abfahrt, Abweichung, Zugausfall, Linie, Gleis und ausdrücklich veröffentlichte Verspätungsursachen. Der Echtzeit-Zeithorizont ist durch die veröffentlichten IRIS-Stationstafeln begrenzt.
+- **Aktuelle Abfahrten und Ankünfte in beide Richtungen**, auch solche ohne Verspätung: geplante und prognostizierte Zeiten, Abweichung, Zugausfall, Linie, Gleis und ausdrücklich veröffentlichte Verspätungsursachen. Der Echtzeit-Zeithorizont ist durch die veröffentlichten IRIS-Stationstafeln begrenzt.
 - **Verkehrsmeldungen und SEV** aus aktuell abgefragten öffentlichen Verbindungen über `v6.db.transport.rest/journeys` (`routingMode=HYBRID`, Busabschnitte eingeschlossen): Baustellen, Sperrungen, Umleitungen, Ausfälle und ausdrücklich als Ersatzverkehr gekennzeichnete Busse. Ein regulärer Bus ist kein Nachweis für SEV.
 - **Automatische Zugwenden**: Ankunfts- und Abfahrtstafeln beider Streckenenden werden nach Endbahnhof, übereinstimmender Linie und zeitlich passender Rückfahrt durchsucht. Für plausible Fälle berechnet die Integration, ob eine verspätete Ankunft rechnerisch eine Folgeverspätung begünstigen könnte. **Es handelt sich nie um eine bestätigte Fahrzeugumlaufzuordnung.** Bei mehreren möglichen Zügen lautet der Status `ambiguous`.
 
@@ -19,10 +19,10 @@ Beispiel Leinefelde → Göttingen: RE 1 soll **15:51** in Göttingen enden, wir
 ### Home-Assistant-Entitäten
 
 Die Integration erzeugt für eine Strecke:
-- Sensoren **Streckenlage**, **Nächste Abfahrt**, **Nächste Rückfahrt**, **Zugwenden**, **Verkehrsmeldungen** und **Fahrplandienst**.
+- Sensoren **Streckenlage**, **Nächste Abfahrt**, **Nächste Rückfahrt**, **Nächste Ankunft**, **Nächste Rückankunft**, **Zugwenden**, **Verkehrsmeldungen** und **Fahrplandienst**.
 - Binärsensoren **Schienenersatzverkehr**, **Störungsmeldung**, **Zugausfälle** und **Mögliche Folgeverspätungen**. Wenn erforderliche Fahrplandaten fehlen, bleibt die Bewertung unbekannt/unverfügbar anstatt fälschlich grün.
 
-Wichtige Attribute des Sensors `Streckenlage`: `timetable.departures`, `turnaround.candidates`, `incidents`, `alert_source_status`, `sev_reported`, `direction_labels` sowie `same_direction` und `reverse_direction`.
+Wichtige Attribute des Sensors `Streckenlage`: `timetable.departures`, `timetable.arrivals`, `turnaround.candidates`, `incidents`, `alert_source_status`, `sev_reported`, `direction_labels` sowie `same_direction` und `reverse_direction`.
 
 Neue Echtzeit-Informationen werden alle zehn Minuten angefordert; Verbindungsmeldungen werden bis zu 30 Minuten zwischengespeichert. Mehrere Einträge teilen sich den Cache der Stationstafeln, um öffentliche Dienste zu schonen.
 
