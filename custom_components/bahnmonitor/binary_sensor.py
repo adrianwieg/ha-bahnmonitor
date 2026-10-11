@@ -53,10 +53,18 @@ class BahnBinarySensor(CoordinatorEntity, BinarySensorEntity):
             )
         if self.kind in ("sev", "route_disruption"):
             route = data.get("route_health") or {}
-            return (
-                super().available
-                and route.get("alert_source_status") == "online"
-                and route.get("alert_journey_count", 0) > 0
+            positive = (
+                bool(route.get("sev_reported"))
+                if self.kind == "sev" else bool(route.get("incidents"))
+            )
+            # Explicit IRIS warnings are trustworthy positives even if the
+            # journey service returns HTTP 503. Never infer a negative from
+            # zero or unavailable journey search results.
+            return super().available and (
+                positive or (
+                    route.get("alert_source_status") == "online"
+                    and route.get("alert_journey_count", 0) > 0
+                )
             )
         if not (super().available and journeys):
             return False
@@ -87,9 +95,15 @@ class BahnBinarySensor(CoordinatorEntity, BinarySensorEntity):
             return turns.get("possible_followup_delay")
         if self.kind in ("sev", "route_disruption"):
             route = data.get("route_health") or {}
+            positive = bool(
+                route.get("sev_reported")
+                if self.kind == "sev" else route.get("incidents")
+            )
+            if positive:
+                return True
             if route.get("alert_source_status") != "online" or not route.get("alert_journey_count"):
                 return None
-            return bool(route.get("sev_reported") if self.kind == "sev" else route.get("incidents"))
+            return False
         journeys = data.get("journeys") or []
         if not journeys:
             return None
@@ -115,6 +129,7 @@ class BahnBinarySensor(CoordinatorEntity, BinarySensorEntity):
             return {
                 "incidents": route.get("incidents", []),
                 "source_status": route.get("alert_source_status"),
+                "sources": route.get("alert_sources", {}),
                 "last_checked": route.get("alert_checked_at"),
             }
         return {"turnaround": journeys[0].get("turnaround") if journeys else None}
