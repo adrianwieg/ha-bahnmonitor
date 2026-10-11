@@ -489,7 +489,14 @@ class BahnCoordinator(DataUpdateCoordinator):
                     "source_status": route.get("alert_source_status"),
                     "checked_at": route.get("alert_checked_at"),
                     "journey_count": route.get("alert_journey_count"),
+                    "errors": route.get("alert_source_errors", []),
                 },
+                "station_boards": route.get("board_counts", {}),
+                "iris_route_alert_count": route.get("alert_board_count", 0),
+                "alert_sources": route.get("alert_sources", {}),
+                "turnaround_relevant_services": (
+                    (route.get("turnaround") or {}).get("relevant_services", 0)
+                ),
             },
         }
 
