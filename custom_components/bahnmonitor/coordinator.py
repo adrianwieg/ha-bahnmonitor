@@ -11,6 +11,7 @@ from homeassistant.util import dt as dt_util
 from .api import BahnApi, BahnApiError
 from .gtfs import GtfsError
 from .dbf import board_departure, incoming_candidates, match_inbound_origin
+from .disruptions import extract_route_alerts, merge_route_alerts
 from .route_health import collect_previous, collect_upcoming, observation_key, summarise
 from .logic import (
     cancellation, delay_minutes, evaluate_turnaround, matches_departure,
@@ -46,6 +47,9 @@ class BahnCoordinator(DataUpdateCoordinator):
         self._last_v6_attempt: datetime | None = None
         self._route_observations: dict[str, dict] = {}
         self._history_store = None
+        self._alerts_checked_at: datetime | None = None
+        self._alerts_retry_at: datetime | None = None
+        self._alerts_cache: dict | None = None
         self._dbf_debug: dict = {
             "status": "not_checked",
             "reason": "No departure in realtime window has been checked yet",
@@ -53,6 +57,20 @@ class BahnCoordinator(DataUpdateCoordinator):
 
     def _startup_snapshot(self, now: datetime) -> dict:
         """Provide usable HA entities without network I/O during setup."""
+        if self.settings.get("monitor_mode", "train") == "route":
+            return {
+                "journeys": [],
+                "provider_status": "not_checked",
+                "checked_at": now.isoformat(),
+                "route_health": {
+                    "status_code": "loading", "status": "Wird geladen",
+                    "summary": "Strecke und Verkehrsmeldungen werden geprüft.",
+                    "source_status": "loading", "alert_source_status": "loading",
+                    "incidents": [], "sev_reported": False,
+                    "sample_count": 0,
+                },
+                "diagnostics": {"setup_mode": "non_blocking_route_startup"},
+            }
         hour, minute = (int(x) for x in self.settings["departure_time"].split(":")[:2])
         weekdays = {int(x.strip()) for x in self.settings["weekdays"].split(",")}
         journeys = []
@@ -104,6 +122,8 @@ class BahnCoordinator(DataUpdateCoordinator):
         now = dt_util.now().astimezone(TZ)
         if self._startup_lightweight:
             return self._startup_snapshot(now)
+        if self.settings.get("monitor_mode", "train") == "route":
+            return await self._async_update_route_only(now)
         hour, minute = (int(x) for x in self.settings["departure_time"].split(":")[:2])
         weekdays = {int(x.strip()) for x in self.settings["weekdays"].split(",")}
         window = int(self.settings["window"])
@@ -338,14 +358,116 @@ class BahnCoordinator(DataUpdateCoordinator):
             },
         }
 
+    async def _async_update_route_only(self, now: datetime) -> dict:
+        """Monitor any configured A-to-B route without an individual train time."""
+        route = await self._route_health(None, now)
+        board_ok = route.get("source_status") in ("online", "partial")
+        alerts_ok = route.get("alert_source_status") in ("online", "partial")
+        provider_status = (
+            "online" if board_ok and alerts_ok
+            else "partial" if board_ok or alerts_ok
+            else "unavailable"
+        )
+        return {
+            "journeys": [], "route_health": route,
+            "provider_status": provider_status,
+            "provider_error": "; ".join(route.get("source_errors", []) + route.get("alert_source_errors", [])) or None,
+            "checked_at": now.isoformat(),
+            "last_successful_update": now.isoformat() if board_ok or alerts_ok else None,
+            "retry_at": self._alerts_retry_at.isoformat() if self._alerts_retry_at else None,
+            "diagnostics": {
+                "monitor_mode": "route",
+                "configured_route": f"{self.settings['origin']} → {self.settings['destination']}",
+                "line_filter": self.settings.get("line") or None,
+                "connection_alerts": {
+                    "source_status": route.get("alert_source_status"),
+                    "checked_at": route.get("alert_checked_at"),
+                    "journey_count": route.get("alert_journey_count"),
+                },
+            },
+        }
+
+    async def _route_alerts(self, now: datetime) -> dict:
+        """Poll route connections sparingly; failures must not be a false all-clear."""
+        request = getattr(self.api, "journeys", None)
+        if request is None:
+            return {"source_status": "unsupported", "incidents": [], "errors": []}
+        if self._alerts_checked_at and self._alerts_cache and (
+            now - self._alerts_checked_at < timedelta(minutes=30)
+        ):
+            return self._alerts_cache
+        if self._alerts_retry_at and now < self._alerts_retry_at:
+            return {
+                "source_status": "unavailable", "incidents": [],
+                "errors": ["Fahrplandienst: Wiederholungsversuch ausstehend"],
+            }
+
+        success = 0
+        failures = []
+        incidents = []
+        journey_count = 0
+        for direction, origin_id, destination_id, origin, destination in (
+            ("same", self.settings["origin_id"], self.settings["destination_id"],
+             self.settings["origin"], self.settings["destination"]),
+            ("reverse", self.settings["destination_id"], self.settings["origin_id"],
+             self.settings["destination"], self.settings["origin"]),
+        ):
+            try:
+                response = await request(origin_id, destination_id, now)
+                parsed = extract_route_alerts(
+                    response, direction=direction,
+                    origin=origin, destination=destination,
+                )
+            except (BahnApiError, ValueError) as exc:
+                failures.append(f"{direction}: {exc}")
+                continue
+            success += 1
+            journey_count += parsed["journey_count"]
+            incidents.extend(parsed["incidents"])
+
+        result = {
+            "source_status": (
+                "online" if success == 2 else
+                "partial" if success else "unavailable"
+            ),
+            "incidents": sorted(
+                incidents, key=lambda item: (
+                    {"sev": 0, "closure": 1, "cancellation": 2,
+                     "construction": 3, "diversion": 4, "delay": 5}.get(item["type"], 9),
+                    item["direction"], item["text"],
+                ),
+            )[:20] if success else [],
+            "journey_count": journey_count,
+            "sev_reported": any(x["type"] == "sev" for x in incidents) if success else False,
+            "checked_at": now.isoformat() if success else None,
+            "errors": failures,
+        }
+        if success:
+            self._alerts_cache = result
+            self._alerts_checked_at = now
+            self._alerts_retry_at = None
+        else:
+            self._alerts_cache = None
+            self._alerts_checked_at = None
+            self._alerts_retry_at = now + timedelta(minutes=30)
+        return result
+
+    async def _with_alerts(self, route: dict, now: datetime) -> dict:
+        """Overlay verified connection notices on independent IRIS observations."""
+        return merge_route_alerts(route, await self._route_alerts(now))
+
     async def _route_health(self, target: datetime | None, now: datetime) -> dict:
-        """Continuously watch RE 1 / RE 11 in both corridor directions.
+        """Monitor configured stations and line filters in both directions.
 
         Queries are independent of the user's departure time, even if their
         journey is tomorrow. IRIS only reports a short station-board window;
         earlier observations are retained throughout the same day.
         """
         target_for_summary = target or now
+        lines = tuple(
+            item.strip() for item in str(self.settings.get("line") or "").split(",")
+            if item.strip()
+        )
         midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
         # Never use yesterday's trains in today's corridor assessment.
         self._route_observations = {
@@ -360,7 +482,7 @@ class BahnCoordinator(DataUpdateCoordinator):
                 source_status="disabled",
             )
             data["source"] = "DBF/IRIS-TTS"
-            return data
+            return await self._with_alerts(data, now)
 
         errors: list[str] = []
         successful: list[str] = []
@@ -381,6 +503,7 @@ class BahnCoordinator(DataUpdateCoordinator):
             for row in collect_previous(
                 board, direction=direction, origin=origin,
                 destination=destination, planned=target_for_summary, now=now,
+                lines=lines,
             ):
                 key = observation_key(row)
                 previous = self._route_observations.get(key)
@@ -389,7 +512,7 @@ class BahnCoordinator(DataUpdateCoordinator):
                     observations_changed = True
             current = collect_upcoming(
                 board, direction=direction, origin=origin,
-                destination=destination, now=now,
+                destination=destination, now=now, lines=lines,
             )
             # A train's own future delay must never inflate the independent
             # corridor-risk assessment of that same train.
@@ -475,7 +598,7 @@ class BahnCoordinator(DataUpdateCoordinator):
             data["status"], data["sample_count"], data["current_count"],
             data["source_status"],
         )
-        return data
+        return await self._with_alerts(data, now)
 
     def _turnaround_choice(self) -> str:
         """Apply the GUI choice; keep old entries without an option compatible."""
