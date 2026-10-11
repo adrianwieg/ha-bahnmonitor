@@ -11,7 +11,7 @@ from homeassistant.util import dt as dt_util
 from .api import BahnApi, BahnApiError
 from .gtfs import GtfsError
 from .dbf import board_departure, incoming_candidates, match_inbound_origin
-from .disruptions import extract_route_alerts, merge_route_alerts
+from .disruptions import extract_route_alerts, extract_board_alerts, merge_route_alerts
 from .turnaround import detect_turnarounds
 from .route_departures import collect_departures, collect_arrivals, summarise_departures
 from .route_health import collect_previous, collect_upcoming, observation_key, summarise
@@ -685,6 +685,8 @@ class BahnCoordinator(DataUpdateCoordinator):
         errors: list[str] = []
         successful: list[str] = []
         boards_by_station: dict[str, list[dict]] = {}
+        board_counts: dict[str, dict] = {}
+        board_incidents: list[dict] = []
         upcoming: list[dict] = []
         departures_all: list[dict] = []
         arrivals_all: list[dict] = []
@@ -703,10 +705,19 @@ class BahnCoordinator(DataUpdateCoordinator):
                 continue
             successful.append(direction)
             boards_by_station[station_id] = board
-            departures_all.extend(collect_departures(
+            matching_departures = collect_departures(
                 board, now=now, direction=direction,
                 origin=origin, destination=destination, lines=lines,
+            )
+            departures_all.extend(matching_departures)
+            board_incidents.extend(extract_board_alerts(
+                board, direction=direction, origin=origin,
+                destination=destination, lines=lines,
             ))
+            board_counts[direction] = {
+                "station": origin, "total_entries": len(board),
+                "matched_in_current_window": len(matching_departures),
+            }
             if history_enabled:
                 for row in collect_previous(
                     board, direction=direction, origin=origin,
@@ -771,6 +782,8 @@ class BahnCoordinator(DataUpdateCoordinator):
             departures_all, now=now, sources_ok=successful,
             arrivals=arrivals_all,
         )
+        data["board_incidents"] = board_incidents[:20]
+        data["board_counts"] = board_counts
         data["arrivals"] = data["timetable"]["arrivals"]
         data["departures"] = data["timetable"]["departures"]
         data["departure_count"] = data["timetable"]["departure_count"]
