@@ -146,3 +146,30 @@ def test_missing_board_is_not_a_negative_turnaround_result():
     )
     assert status["status"] == "source_unavailable"
     assert status["source_status"] == "unavailable"
+
+
+def test_arrival_at_other_endpoint_is_visible_with_delay():
+    arrivals = departures.collect_arrivals(
+        [arrival()],
+        now=now, origin="Leinefelde", destination="Göttingen",
+        direction="same", lines=("RE 1",),
+    )
+    assert len(arrivals) == 1
+    assert arrivals[0]["planned_arrival"].startswith("2026-10-08T15:51")
+    assert arrivals[0]["predicted_arrival"].startswith("2026-10-08T16:08")
+    assert arrivals[0]["delay_minutes"] == 17
+    timetable = departures.summarise_departures(
+        [], now=now, sources_ok=["same", "reverse"], arrivals=arrivals,
+    )
+    assert timetable["next_arrival"] == arrivals[0]
+    assert timetable["arrival_count"] == 1
+
+
+def test_unrelated_incoming_service_does_not_belong_to_monitored_route():
+    unrelated = {**arrival(), "route": ["Dresden", "Göttingen"], "origin": "Dresden"}
+    arrivals = departures.collect_arrivals(
+        [unrelated],
+        now=now, origin="Leinefelde", destination="Göttingen",
+        direction="same", lines=("RE 1",),
+    )
+    assert arrivals == []
