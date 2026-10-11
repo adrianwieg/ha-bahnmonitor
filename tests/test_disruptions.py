@@ -83,3 +83,68 @@ def test_cannot_explain_cause_by_non_disruption_remark():
     assert alerts.classify("WLAN und Fahrradmitnahme verfügbar") is None
     assert alerts.classify("Kein Schienenersatzverkehr erforderlich") is None
     assert alerts.classify("Vollsperrung wegen Bauarbeiten") == "closure"
+
+
+def test_iris_explicit_sev_without_connections_provider():
+    events = alerts.extract_board_alerts(
+        [{"train": "Bus SEV", "destination": "Göttingen",
+          "scheduledDeparture": "18:30", "route": ["Göttingen"]}],
+        direction="same", origin="Leinefelde", destination="Göttingen",
+    )
+    assert len(events) == 1
+    assert events[0]["type"] == "sev"
+    assert events[0]["source"] == "DBF/IRIS-TTS"
+    merged = alerts.merge_route_alerts(
+        {"status": "Noch keine Beobachtungen", "status_code": "no_data",
+         "summary": "Wenig Daten", "sample_count": 0,
+         "source_status": "online", "board_incidents": events},
+        {"source_status": "unavailable", "errors": ["HTTP 503"],
+         "incidents": [], "journey_count": 0},
+    )
+    assert merged["status"] == "Schienenersatzverkehr gemeldet"
+    assert merged["sev_reported"] is True
+    assert merged["alert_source_status"] == "unavailable"
+    assert merged["alert_sources"]["station_boards"] == "online"
+    assert merged["alert_board_count"] == 1
+
+
+def test_no_false_sev_from_a_normal_bus_or_wrong_route():
+    board = [
+        {"train": "Bus 61", "destination": "Göttingen"},
+        {"train": "Bus SEV", "destination": "Nordhausen"},
+        {"train": "RE RE1", "destination": "Göttingen",
+         "messages": {"qos": [{"text": "Klimaanlage defekt"}]}},
+    ]
+    assert alerts.extract_board_alerts(
+        board, direction="same", origin="Leinefelde", destination="Göttingen",
+    ) == []
+
+
+def test_iris_line_filter_does_not_attribute_unrelated_sev():
+    board = [
+        {"train": "Bus SEV", "destination": "Göttingen"},
+        {"train": "RE RE1", "destination": "Göttingen",
+         "messages": {"delay": [{"text": "Schienenersatzverkehr im Abschnitt"}]}},
+        {"train": "RE RE11", "destination": "Göttingen",
+         "messages": {"delay": [{"text": "Umleitung wegen Bauarbeiten"}]}},
+    ]
+    events = alerts.extract_board_alerts(
+        board, direction="same", origin="Leinefelde", destination="Göttingen",
+        lines=("RE 1",),
+    )
+    assert len(events) == 1 and events[0]["type"] == "sev"
+
+
+def test_connection_outage_with_no_iris_evidence_is_not_all_clear():
+    merged = alerts.merge_route_alerts(
+        {"status": "Noch keine Beobachtungen", "status_code": "no_data",
+         "summary": "Keine Züge", "sample_count": 0,
+         "source_status": "online", "board_incidents": []},
+        {"source_status": "unavailable", "errors": ["HTTP 503"],
+         "incidents": [], "journey_count": 0},
+    )
+    assert merged["status"] == "Daten unvollständig"
+    assert merged["status_code"] == "partial_source_unavailable"
+    assert merged["incidents"] == []
+    assert merged["sev_reported"] is False
+    assert "keine bestätigte Entwarnung" in merged["alert_note"].lower()
