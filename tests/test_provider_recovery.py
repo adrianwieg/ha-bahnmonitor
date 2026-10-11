@@ -625,3 +625,51 @@ def test_general_route_monitor_reports_sev_without_scheduled_train(monkeypatch):
     second = asyncio.run(coordinator._async_update_data())
     assert second["route_health"]["status_code"] == "sev"
     assert api.journey_calls == 2, "Cache recent route alerts, avoid API flooding"
+
+
+def test_route_setup_can_recover_missing_eva_ids_without_reconfiguration(monkeypatch):
+    """Temporary /locations outages must not turn setup into a dead-end."""
+    code, api_error = load_coordinator(monkeypatch)
+
+    class DeferredProvider:
+        failing = True
+        board_calls = 0
+
+        async def resolve_station(self, station):
+            if self.failing:
+                raise api_error("station search HTTP 503")
+            return {
+                "Erfurt Hbf": ("8010101", "Erfurt Hbf"),
+                "Gotha": ("8010132", "Gotha"),
+            }[station]
+
+        async def dbf_board(self, station, mode="dep"):
+            self.board_calls += 1
+            return []
+
+        async def journeys(self, origin, destination, now):
+            return {"journeys": []}
+
+    provider = DeferredProvider()
+    settings = {
+        "monitor_mode": "route", "origin": "Erfurt Hbf",
+        "destination": "Gotha", "origin_id": "", "destination_id": "",
+        "station_lookup_pending": True, "line": "",
+    }
+    coordinator = code.BahnCoordinator(None, provider, settings, "pending-ids")
+
+    first = asyncio.run(coordinator._async_update_data())
+    assert first["provider_status"] == "unavailable"
+    assert first["route_health"]["status_code"] == "station_lookup_pending"
+    assert first["diagnostics"]["station_lookup"]["status"] == "pending"
+    assert first["retry_at"] is not None
+    assert provider.board_calls == 0
+
+    provider.failing = False
+    coordinator._station_retry_at = NOW - timedelta(minutes=1)
+    recovered = asyncio.run(coordinator._async_update_data())
+    assert settings["origin_id"] == "8010101"
+    assert settings["destination_id"] == "8010132"
+    assert settings["station_lookup_pending"] is False
+    assert recovered["route_health"]["status_code"] != "station_lookup_pending"
+    assert provider.board_calls > 0
