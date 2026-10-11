@@ -13,6 +13,7 @@ from .gtfs import GtfsError
 from .dbf import board_departure, incoming_candidates, match_inbound_origin
 from .disruptions import extract_route_alerts, merge_route_alerts
 from .turnaround import detect_turnarounds
+from .route_departures import collect_departures, summarise_departures
 from .route_health import collect_previous, collect_upcoming, observation_key, summarise
 from .logic import (
     cancellation, delay_minutes, evaluate_turnaround, matches_departure,
@@ -550,19 +551,14 @@ class BahnCoordinator(DataUpdateCoordinator):
             key: row for key, row in self._route_observations.items()
             if midnight.isoformat() <= row.get("scheduled_departure", "") < now.isoformat()
         }
-        if not self.settings.get("history_enabled", True):
-            data = summarise([], target=target_for_summary, now=now)
-            data.update(
-                status="Deaktiviert", status_code="disabled",
-                summary="Die durchgehende Streckenüberwachung ist deaktiviert.",
-                source_status="disabled",
-            )
-            data["source"] = "DBF/IRIS-TTS"
-            return await self._with_turnarounds(data, now, lines)
+        # The history flag only controls retaining past observations.
+        # Live boards, turnarounds and connection alerts always run.
+        history_enabled = self.settings.get("history_enabled", True)
 
         errors: list[str] = []
         successful: list[str] = []
         upcoming: list[dict] = []
+        departures_all: list[dict] = []
         observations_changed = False
         for direction, station_id, origin, destination in (
             ("same", self.settings["origin_id"],
@@ -576,16 +572,21 @@ class BahnCoordinator(DataUpdateCoordinator):
                 errors.append(f"{direction}: {exc}")
                 continue
             successful.append(direction)
-            for row in collect_previous(
-                board, direction=direction, origin=origin,
-                destination=destination, planned=target_for_summary, now=now,
-                lines=lines,
-            ):
-                key = observation_key(row)
-                previous = self._route_observations.get(key)
-                if previous is None or row["observed_at"] >= previous.get("observed_at", ""):
-                    self._route_observations[key] = row
-                    observations_changed = True
+            departures_all.extend(collect_departures(
+                board, now=now, direction=direction,
+                origin=origin, destination=destination, lines=lines,
+            ))
+            if history_enabled:
+                for row in collect_previous(
+                    board, direction=direction, origin=origin,
+                    destination=destination, planned=target_for_summary, now=now,
+                    lines=lines,
+                ):
+                    key = observation_key(row)
+                    previous = self._route_observations.get(key)
+                    if previous is None or row["observed_at"] >= previous.get("observed_at", ""):
+                        self._route_observations[key] = row
+                        observations_changed = True
             current = collect_upcoming(
                 board, direction=direction, origin=origin,
                 destination=destination, now=now, lines=lines,
@@ -619,6 +620,11 @@ class BahnCoordinator(DataUpdateCoordinator):
             list(self._route_observations.values()), target=target_for_summary,
             now=now, limit=3, upcoming=upcoming,
         )
+        data["timetable"] = summarise_departures(
+            departures_all, now=now, sources_ok=successful,
+        )
+        data["departures"] = data["timetable"]["departures"]
+        data["departure_count"] = data["timetable"]["departure_count"]
         own_route = (
             f"{self.settings['origin']} → {self.settings['destination']}"
         )
