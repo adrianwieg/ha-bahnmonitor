@@ -29,10 +29,8 @@ def schema(defaults: dict | None = None) -> vol.Schema:
     mode = x.get("monitor_mode", "train" if x.get("departure_time") else "route")
     fields = {
         vol.Required("name", default=x.get("name", "Bahnmonitor")): str,
-        vol.Required("monitor_mode", default=mode): vol.In({
-            "route": "Strecke überwachen",
-            "train": "Zusätzlich feste Abfahrtszeit überwachen (Altmodus)",
-        }),
+        # Existing legacy train entries remain editable below; new entries
+        # are always route monitors without a confusing mode selector.
         vol.Required("origin", default=x.get("origin", DEFAULT_ORIGIN)): str,
         vol.Required("destination", default=x.get("destination", DEFAULT_DESTINATION)): str,
         vol.Optional("line", default=x.get("line", DEFAULT_LINE)): str,
@@ -90,6 +88,7 @@ class BahnmonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_user(self, user_input: dict | None = None) -> FlowResult:
         errors = {}
         if user_input is not None:
+            user_input["monitor_mode"] = "route"
             if not valid_config(user_input):
                 errors["base"] = "invalid_settings"
             else:
@@ -113,6 +112,11 @@ class BahnmonitorOptionsFlow(config_entries.OptionsFlowWithReload):
     async def async_step_init(self, user_input: dict | None = None) -> FlowResult:
         errors = {}
         if user_input is not None:
+            user_input["monitor_mode"] = (
+                self.config_entry.options.get("monitor_mode")
+                or self.config_entry.data.get("monitor_mode")
+                or ("train" if self.config_entry.data.get("departure_time") else "route")
+            )
             if not valid_config(user_input):
                 errors["base"] = "invalid_settings"
             else:
