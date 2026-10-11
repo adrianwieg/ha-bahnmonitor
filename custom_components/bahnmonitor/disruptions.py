@@ -155,9 +155,11 @@ def _board_station_matches(row: dict, name: str) -> bool:
         return False
     if normalize(row.get("destination")) == target:
         return True
+    route = row.get("route") if isinstance(row.get("route"), list) else []
+    via = row.get("via") if isinstance(row.get("via"), list) else []
     return any(
         normalize(stop) == target
-        for stop in (row.get("route") or []) + (row.get("via") or [])
+        for stop in route + via
         if isinstance(stop, (dict, str))
     )
 
