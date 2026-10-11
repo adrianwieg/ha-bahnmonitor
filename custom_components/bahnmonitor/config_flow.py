@@ -19,48 +19,53 @@ _LOGGER = logging.getLogger(__name__)
 
 
 def default_turnaround_at(data: dict) -> str:
-    """Preserve legacy setup, while new setups default to start station."""
-    if "turnaround_at" in data:
-        return data["turnaround_at"]
-    if not data.get("turnaround", True):
-        return "off"
-    if "origin" in data and data["origin"].strip().casefold() != "göttingen":
-        return "off"
-    return "origin"
+    """Automatic discovery is the default; older entries retain preferences."""
+    return data.get("turnaround_at", "auto")
 
 
 def schema(defaults: dict | None = None) -> vol.Schema:
+    """A route with an optional line is the primary and simplest UI."""
     x = defaults or {}
-    return vol.Schema({
+    mode = x.get("monitor_mode", "train" if x.get("departure_time") else "route")
+    fields = {
         vol.Required("name", default=x.get("name", "Bahnmonitor")): str,
-        vol.Required("monitor_mode", default=x.get("monitor_mode", "train" if x.get("departure_time") else "route")): vol.In({
-            "route": "Strecke überwachen (ohne feste Abfahrtszeit)",
-            "train": "Wiederkehrende Zugfahrt überwachen",
+        vol.Required("monitor_mode", default=mode): vol.In({
+            "route": "Strecke überwachen",
+            "train": "Zusätzlich feste Abfahrtszeit überwachen (Altmodus)",
         }),
         vol.Required("origin", default=x.get("origin", DEFAULT_ORIGIN)): str,
         vol.Required("destination", default=x.get("destination", DEFAULT_DESTINATION)): str,
         vol.Optional("line", default=x.get("line", DEFAULT_LINE)): str,
-        vol.Optional("departure_time", default=x.get("departure_time", DEFAULT_TIME)): str,
-        vol.Required("weekdays", default=x.get("weekdays", DEFAULT_DAYS)): str,
-        vol.Required("window", default=x.get("window", DEFAULT_WINDOW)): vol.All(vol.Coerce(int), vol.Range(min=5, max=90)),
-        vol.Required("history_enabled", default=x.get("history_enabled", True)): bool,
-        vol.Required("turnaround_at", default=default_turnaround_at(x)): vol.In({
-            "off": "Kein Wendebahnhof / Prüfung aus",
-            "origin": "Startbahnhof ist Wendebahnhof",
-            "destination": "Zielbahnhof ist Wendebahnhof",
-        }),
-        vol.Required("min_turn_minutes", default=x.get("min_turn_minutes", 8)): vol.All(vol.Coerce(int), vol.Range(min=0, max=30)),
-        vol.Required("max_turn_minutes", default=x.get("max_turn_minutes", DEFAULT_TURNAROUND)): vol.All(vol.Coerce(int), vol.Range(min=10, max=120)),
-    })
+    }
+    if mode == "train":
+        fields.update({
+            vol.Required("departure_time", default=x.get("departure_time", DEFAULT_TIME)): str,
+            vol.Required("weekdays", default=x.get("weekdays", DEFAULT_DAYS)): str,
+            vol.Required("window", default=x.get("window", DEFAULT_WINDOW)): vol.All(
+                vol.Coerce(int), vol.Range(min=5, max=90)),
+            vol.Required("history_enabled", default=x.get("history_enabled", True)): bool,
+            vol.Required("turnaround_at", default=default_turnaround_at(x)): vol.In({
+                "auto": "Wendebahnhöfe automatisch erkennen (empfohlen)",
+                "off": "Vorleistungsprüfung deaktivieren",
+                "origin": "Altmodus: Startbahnhof als Wendebahnhof",
+                "destination": "Altmodus: Zielbahnhof als Wendebahnhof",
+            }),
+            vol.Required("min_turn_minutes", default=x.get("min_turn_minutes", 8)): vol.All(
+                vol.Coerce(int), vol.Range(min=0, max=30)),
+            vol.Required("max_turn_minutes", default=x.get("max_turn_minutes", DEFAULT_TURNAROUND)): vol.All(
+                vol.Coerce(int), vol.Range(min=10, max=120)),
+        })
+    return vol.Schema(fields)
 
 
 def valid_config(data: dict) -> bool:
-    """Station-to-station setup never requires a scheduled individual train."""
+    """For the primary route mode, only valid station names are required."""
     try:
         origin, destination = data["origin"].strip(), data["destination"].strip()
-        mode = data.get("monitor_mode", "train")
-        if (not origin or not destination or origin.casefold() == destination.casefold()
-                or mode not in ("route", "train")):
+        mode = data.get("monitor_mode", "route")
+        if not origin or not destination or origin.casefold() == destination.casefold():
+            return False
+        if mode not in ("route", "train"):
             return False
         if mode == "route":
             return True
@@ -69,9 +74,8 @@ def valid_config(data: dict) -> bool:
         time.fromisoformat(data["departure_time"])
         days = [int(d.strip()) for d in data["weekdays"].split(",")]
         return (
-            bool(days)
-            and all(0 <= d <= 6 for d in days)
-            and data.get("turnaround_at", "off") in ("off", "origin", "destination")
+            bool(days) and all(0 <= d <= 6 for d in days)
+            and data.get("turnaround_at", "auto") in ("off", "auto", "origin", "destination")
         )
     except (ValueError, KeyError, TypeError):
         return False
