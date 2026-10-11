@@ -30,8 +30,9 @@ def normalize_station_name(name: str) -> str:
     """Unify common spelling variants, not unrelated platform/stop names."""
     clean = re.sub(r"\s+", " ", str(name).strip()).casefold()
     clean = clean.replace("ä", "ae").replace("ö", "oe").replace("ü", "ue").replace("ß", "ss")
-    clean = re.sub(r"^(?:bahnhof)\s+", "", clean)
-    clean = re.sub(r"\s+(?:hauptbahnhof|hbf|bahnhof)$", "", clean)
+    # Hauptbahnhof and Hbf are synonyms; omitting Hbf altogether is *not*
+    # equivalent. "Berlin" must not silently resolve to "Berlin Hbf".
+    clean = re.sub(r"\bhauptbahnhof\b", "hbf", clean)
     return re.sub(r"[^a-z0-9]", "", clean)
 
 
