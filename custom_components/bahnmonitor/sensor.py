@@ -241,7 +241,8 @@ class BahnTurnaroundSensor(BahnEntity):
         return {
             "plausible": "Mögliche Zugwende erkannt",
             "ambiguous": "Zugwende nicht eindeutig",
-            "not_found": "Keine Zugwende erkannt",
+            "not_found": "Keine passende Zugwende im Zeitfenster",
+            "insufficient_data": "Keine passenden Fahrten für Wendeprüfung",
             "source_unavailable": "Datenquelle gestört",
         }.get(report.get("status"), "Noch nicht geprüft")
 
