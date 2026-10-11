@@ -147,4 +147,4 @@ def test_connection_outage_with_no_iris_evidence_is_not_all_clear():
     assert merged["status_code"] == "partial_source_unavailable"
     assert merged["incidents"] == []
     assert merged["sev_reported"] is False
-    assert "keine bestätigte Entwarnung" in merged["alert_note"].lower()
+    assert "keine bestätigte entwarnung" in merged["alert_note"].lower()
