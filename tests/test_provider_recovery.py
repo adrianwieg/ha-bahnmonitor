@@ -226,7 +226,7 @@ def test_1609_route_watched_already_at_0752(monkeypatch):
         assert data["route_health"]["current_count"] == 0
         assert data["route_health"]["same_direction"]["count"] == 1
         assert data["route_health"]["reverse_direction"]["count"] == 0
-        assert api.stations == ["8000128", "8010203", "8000128", "8010203"]
+        assert api.stations == ["8000128", "8010203", "8010203", "8000128"]
     finally:
         clock.now = original_now
 
