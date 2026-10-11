@@ -1,0 +1,43 @@
+# Neutrale Lovelace-Karte für einen Bahnmonitor im Streckenmodus.
+# In den Zeilen entity_id und {% set monitor = ... %} die echte Entität aus
+# Entwicklerwerkzeuge > Zustände einsetzen (z. B. sensor.arbeitsweg_streckenlage).
+type: markdown
+title: Bahnmonitor · Streckenlage
+entity_id:
+  - sensor.meine_strecke_streckenlage
+content: >-
+  {% set monitor = 'sensor.meine_strecke_streckenlage' %}
+  {% set situation = states(monitor) %}
+  {% set messages = state_attr(monitor, 'incidents') or [] %}
+  {% set checked = state_attr(monitor, 'alert_checked_at') %}
+  {% set source = state_attr(monitor, 'alert_source_status') or 'not_checked' %}
+  {% set line = state_attr(monitor, 'direction_labels') or {} %}
+
+  ## 🚆 {{ situation }}
+
+  {% if line.same %}
+  **{{ line.same }}** und **{{ line.reverse }}**
+  {% endif %}
+
+  {% if is_state(monitor, 'unavailable') or is_state(monitor, 'unknown') %}
+  Die Integration liefert aktuell keine auswertbare Streckenlage.
+  {% elif messages %}
+  ### Aktuelle Verkehrs- und Ersatzverkehrshinweise
+  {% for item in messages[:8] %}
+  - **{{ item.type | upper }}** · {{ item.route }}{% if item.line %} · {{ item.line }}{% endif %}: {{ item.text }}
+  {% endfor %}
+  {% else %}
+  Keine ausdrücklichen Verkehrsmeldungen in den aktuell geprüften Verbindungen
+  gefunden. Das ist **keine Bestätigung**, dass die Strecke störungsfrei ist.
+  {% endif %}
+
+  ### Datenlage
+  Verbindungswarnungen: **{{ source }}**
+
+  {% if checked %}
+  Letzte Prüfung: {{ as_timestamp(checked) | timestamp_custom('%d.%m.%Y %H:%M') }} Uhr
+  {% endif %}
+
+  {{ state_attr(monitor, 'alert_note') or '' }}
+
+  {{ state_attr(monitor, 'summary') or '' }}
