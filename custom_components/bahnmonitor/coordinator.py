@@ -12,6 +12,7 @@ from .api import BahnApi, BahnApiError
 from .gtfs import GtfsError
 from .dbf import board_departure, incoming_candidates, match_inbound_origin
 from .disruptions import extract_route_alerts, merge_route_alerts
+from .turnaround import detect_turnarounds
 from .route_health import collect_previous, collect_upcoming, observation_key, summarise
 from .logic import (
     cancellation, delay_minutes, evaluate_turnaround, matches_departure,
@@ -311,6 +312,8 @@ class BahnCoordinator(DataUpdateCoordinator):
             self._last_full_check = now
 
         route_health = await self._route_health(next_planned, now)
+        if self._turnaround_choice() == "auto":
+            self._attach_automatic_turnarounds(journeys, route_health)
         # A responsive corridor IRIS board is useful live data even if the
         # separate seven-day timetable provider is currently unavailable.
         if route_health.get("source_status") in ("online", "partial"):
@@ -456,6 +459,79 @@ class BahnCoordinator(DataUpdateCoordinator):
         """Overlay verified connection notices on independent IRIS observations."""
         return merge_route_alerts(route, await self._route_alerts(now))
 
+    def _attach_automatic_turnarounds(self, journeys: list[dict], route_health: dict) -> None:
+        """Only associate an inferred return trip with the matching departure."""
+        candidates = (route_health.get("turnaround") or {}).get("candidates", [])
+        for journey in journeys:
+            planned = parse_time(journey.get("scheduled_departure"))
+            if planned is None:
+                continue
+            relevant = [
+                candidate for candidate in candidates
+                if candidate["station"].casefold() == self.settings["origin"].casefold()
+                and abs((datetime.fromisoformat(candidate["departure_scheduled"]) - planned).total_seconds())
+                    <= int(self.settings.get("window", 20)) * 60
+                and (
+                    not self.settings.get("line")
+                    or candidate["line"].replace(" ", "").upper()
+                        == self.settings["line"].replace(" ", "").upper()
+                )
+            ]
+            if len(relevant) == 1:
+                candidate = relevant[0]
+                journey["turnaround"] = {
+                    "status": "possible" if candidate["status"] == "plausible" else "ambiguous",
+                    "risk": candidate["possible_followup_delay"] if candidate["status"] == "plausible" else None,
+                    "reason": "Automatisch vermutete Zugwende; Fahrzeugzuordnung unbestätigt.",
+                    "turnaround_station": candidate["station"],
+                    "turnaround_choice": "auto",
+                    "incoming_planned": candidate["arrival_scheduled"],
+                    "incoming_predicted": candidate["arrival_predicted"],
+                    "outgoing_planned": candidate["departure_scheduled"],
+                    "incoming_delay_minutes": candidate["incoming_delay_minutes"],
+                    "turnaround_buffer_minutes": candidate["predicted_turn_minutes"],
+                    "minimum_turnaround_minutes": candidate["minimum_turn_minutes"],
+                    "estimated_minimum_followup_delay_minutes": candidate["potential_delay_minutes_if_same_vehicle"],
+                    "estimated_delay_only_if_same_vehicle": True,
+                    "confirmed_vehicle": False,
+                    "evidence": candidate["confidence"],
+                }
+            elif len(relevant) > 1:
+                journey["turnaround"] = {
+                    "status": "ambiguous", "risk": None, "confirmed_vehicle": False,
+                    "reason": "Mehrere mögliche Vorleistungen; keine eindeutige Zugwende.",
+                }
+            else:
+                journey["turnaround"] = {
+                    "status": "unknown", "risk": None, "confirmed_vehicle": False,
+                    "reason": "Keine automatisch belegbare Zugwende in aktuellen Stationstafeln.",
+                }
+
+    async def _detect_route_turnarounds(self, now: datetime, lines: tuple[str, ...]) -> dict:
+        """Observe arrival and departure boards at both endpoints, both ways."""
+        boards = []
+        for station, station_id, other in (
+            (self.settings["origin"], self.settings["origin_id"], self.settings["destination"]),
+            (self.settings["destination"], self.settings["destination_id"], self.settings["origin"]),
+        ):
+            endpoint = {"station": station, "other": other,
+                        "arrivals": None, "departures": None}
+            for mode, key in (("arr", "arrivals"), ("dep", "departures")):
+                try:
+                    endpoint[key] = await self.api.dbf_board(station_id, mode=mode)
+                except BahnApiError:
+                    pass  # The detector exposes partial/unavailable source status.
+            boards.append(endpoint)
+        return detect_turnarounds(
+            now=now, endpoints=boards, lines=lines,
+            min_turn_minutes=self.settings.get("min_turn_minutes", 8),
+            max_turn_minutes=self.settings.get("max_turn_minutes", 60),
+        )
+
+    async def _with_turnarounds(self, route: dict, now: datetime, lines: tuple[str, ...]) -> dict:
+        route["turnaround"] = await self._detect_route_turnarounds(now, lines)
+        return await self._with_alerts(route, now)
+
     async def _route_health(self, target: datetime | None, now: datetime) -> dict:
         """Monitor configured stations and line filters in both directions.
 
@@ -482,7 +558,7 @@ class BahnCoordinator(DataUpdateCoordinator):
                 source_status="disabled",
             )
             data["source"] = "DBF/IRIS-TTS"
-            return await self._with_alerts(data, now)
+            return await self._with_turnarounds(data, now, lines)
 
         errors: list[str] = []
         successful: list[str] = []
@@ -598,13 +674,13 @@ class BahnCoordinator(DataUpdateCoordinator):
             data["status"], data["sample_count"], data["current_count"],
             data["source_status"],
         )
-        return await self._with_alerts(data, now)
+        return await self._with_turnarounds(data, now, lines)
 
     def _turnaround_choice(self) -> str:
         """Apply the GUI choice; keep old entries without an option compatible."""
         if "turnaround_at" in self.settings:
             value = self.settings["turnaround_at"]
-            return value if value in ("origin", "destination", "off") else "off"
+            return value if value in ("origin", "destination", "off", "auto") else "off"
         if not self.settings.get("turnaround", True):
             return "off"
         return (
@@ -633,6 +709,13 @@ class BahnCoordinator(DataUpdateCoordinator):
     ) -> dict:
         info = self._turnaround_state()
         choice = info["turnaround_choice"]
+        if choice == "auto":
+            # Route-wide detection runs on the same refresh, independent of
+            # the scheduled train. It will attach the matching evidence later.
+            return {
+                **info, "status": "not_checked", "risk": None,
+                "reason": "Automatische Streckenprüfung läuft",
+            }
         if choice == "off":
             return {**info, "status": "disabled", "reason": "Vorleistungsprüfung deaktiviert"}
         if choice == "destination":
