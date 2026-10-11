@@ -13,6 +13,8 @@ async def async_setup_entry(hass, entry, async_add_entities):
         BahnRouteHealthSensor(coordinator, entry),
         BahnRouteDepartureSensor(coordinator, entry, "same"),
         BahnRouteDepartureSensor(coordinator, entry, "reverse"),
+        BahnRouteArrivalSensor(coordinator, entry, "same"),
+        BahnRouteArrivalSensor(coordinator, entry, "reverse"),
         BahnTurnaroundSensor(coordinator, entry),
         BahnRouteMessagesSensor(coordinator, entry),
         BahnProviderSensor(coordinator, entry),
@@ -276,4 +278,44 @@ class BahnRouteMessagesSensor(BahnEntity):
             "last_checked": route.get("alert_checked_at"),
             "notice": route.get("alert_note"),
             "scope": route.get("alert_scope"),
+        }
+
+
+class BahnRouteArrivalSensor(BahnEntity):
+    """Observed arrival at the other endpoint of the monitored corridor."""
+
+    _attr_icon = "mdi:train-car"
+
+    def __init__(self, coordinator, entry, direction: str):
+        super().__init__(coordinator, entry)
+        self.direction = direction
+        self._attr_name = "Nächste Ankunft" if direction == "same" else "Nächste Rückankunft"
+        self._attr_unique_id = f"{entry.entry_id}_route_arrival_{direction}"
+
+    @property
+    def native_value(self):
+        timetable = (self.coordinator.data or {}).get("route_health", {}).get("timetable") or {}
+        key = "next_arrival" if self.direction == "same" else "next_reverse_arrival"
+        row = timetable.get(key)
+        if row:
+            stamp = result_time(row.get("predicted_arrival") or row["planned_arrival"])
+            delay = row.get("delay_minutes")
+            suffix = f" (+{delay} Min)" if isinstance(delay, (int, float)) and delay > 0 else ""
+            return f"{row['line']} {stamp}{suffix}"
+        return "Keine aktuelle Ankunft" if timetable.get("source_status") == "online" else "Daten fehlen"
+
+    @property
+    def extra_state_attributes(self):
+        route = (self.coordinator.data or {}).get("route_health") or {}
+        timetable = route.get("timetable") or {}
+        key = "next_arrival" if self.direction == "same" else "next_reverse_arrival"
+        return {
+            "direction": route.get("direction_labels", {}).get(self.direction),
+            "next_arrival": timetable.get(key),
+            "arrivals": [
+                row for row in timetable.get("arrivals", [])
+                if row.get("direction") == self.direction
+            ],
+            "source_status": timetable.get("source_status"),
+            "scope": timetable.get("scope"),
         }
