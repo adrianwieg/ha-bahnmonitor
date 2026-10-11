@@ -4,10 +4,17 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 
 async def async_setup_entry(hass, entry, async_add_entities):
-    async_add_entities([
-        BahnBinarySensor(entry.runtime_data, entry, "cancelled", "Zugausfall", "mdi:train-off"),
-        BahnBinarySensor(entry.runtime_data, entry, "turnaround_risk", "Mögliche Folgeverspätung", "mdi:clock-alert-outline"),
-    ])
+    coordinator = entry.runtime_data
+    entities = [
+        BahnBinarySensor(coordinator, entry, "sev", "Schienenersatzverkehr", "mdi:bus-alert"),
+        BahnBinarySensor(coordinator, entry, "route_disruption", "Störungsmeldung", "mdi:alert-circle-outline"),
+    ]
+    if coordinator.settings.get("monitor_mode", "train") != "route":
+        entities += [
+            BahnBinarySensor(coordinator, entry, "cancelled", "Zugausfall", "mdi:train-off"),
+            BahnBinarySensor(coordinator, entry, "turnaround_risk", "Mögliche Folgeverspätung", "mdi:clock-alert-outline"),
+        ]
+    async_add_entities(entities)
 
 
 class BahnBinarySensor(CoordinatorEntity, BinarySensorEntity):
@@ -26,6 +33,13 @@ class BahnBinarySensor(CoordinatorEntity, BinarySensorEntity):
         # Unknown upstream status must never raise a false all-clear or warning.
         data = self.coordinator.data or {}
         journeys = data.get("journeys") or []
+        if self.kind in ("sev", "route_disruption"):
+            route = data.get("route_health") or {}
+            return (
+                super().available
+                and route.get("alert_source_status") == "online"
+                and route.get("alert_journey_count", 0) > 0
+            )
         if not (super().available and journeys):
             return False
         trip = journeys[0]
@@ -46,7 +60,13 @@ class BahnBinarySensor(CoordinatorEntity, BinarySensorEntity):
 
     @property
     def is_on(self):
-        journeys = (self.coordinator.data or {}).get("journeys") or []
+        data = self.coordinator.data or {}
+        if self.kind in ("sev", "route_disruption"):
+            route = data.get("route_health") or {}
+            if route.get("alert_source_status") != "online" or not route.get("alert_journey_count"):
+                return None
+            return bool(route.get("sev_reported") if self.kind == "sev" else route.get("incidents"))
+        journeys = data.get("journeys") or []
         if not journeys:
             return None
         next_trip = journeys[0]
@@ -58,4 +78,11 @@ class BahnBinarySensor(CoordinatorEntity, BinarySensorEntity):
     @property
     def extra_state_attributes(self):
         journeys = (self.coordinator.data or {}).get("journeys") or []
+        if self.kind in ("sev", "route_disruption"):
+            route = (self.coordinator.data or {}).get("route_health") or {}
+            return {
+                "incidents": route.get("incidents", []),
+                "source_status": route.get("alert_source_status"),
+                "last_checked": route.get("alert_checked_at"),
+            }
         return {"turnaround": journeys[0].get("turnaround") if journeys else None}
