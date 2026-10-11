@@ -8,6 +8,8 @@ async def async_setup_entry(hass, entry, async_add_entities):
     entities = [
         BahnBinarySensor(coordinator, entry, "sev", "Schienenersatzverkehr", "mdi:bus-alert"),
         BahnBinarySensor(coordinator, entry, "route_disruption", "Störungsmeldung", "mdi:alert-circle-outline"),
+        BahnBinarySensor(coordinator, entry, "route_cancelled", "Zugausfälle", "mdi:train-off"),
+        BahnBinarySensor(coordinator, entry, "route_turnaround_risk", "Mögliche Folgeverspätungen", "mdi:clock-alert-outline"),
     ]
     if coordinator.settings.get("monitor_mode", "train") != "route":
         entities += [
@@ -33,6 +35,22 @@ class BahnBinarySensor(CoordinatorEntity, BinarySensorEntity):
         # Unknown upstream status must never raise a false all-clear or warning.
         data = self.coordinator.data or {}
         journeys = data.get("journeys") or []
+        if self.kind == "route_cancelled":
+            timetable = (data.get("route_health") or {}).get("timetable") or {}
+            return (
+                super().available and timetable.get("source_status") == "online"
+                and bool(timetable.get("departures"))
+            )
+        if self.kind == "route_turnaround_risk":
+            turns = (data.get("route_health") or {}).get("turnaround") or {}
+            return (
+                super().available
+                and any(
+                    row.get("status") == "plausible"
+                    and row.get("possible_followup_delay") is not None
+                    for row in turns.get("candidates", [])
+                )
+            )
         if self.kind in ("sev", "route_disruption"):
             route = data.get("route_health") or {}
             return (
@@ -61,6 +79,12 @@ class BahnBinarySensor(CoordinatorEntity, BinarySensorEntity):
     @property
     def is_on(self):
         data = self.coordinator.data or {}
+        if self.kind == "route_cancelled":
+            timetable = (data.get("route_health") or {}).get("timetable") or {}
+            return any(row.get("cancelled") for row in timetable.get("departures", []))
+        if self.kind == "route_turnaround_risk":
+            turns = (data.get("route_health") or {}).get("turnaround") or {}
+            return turns.get("possible_followup_delay")
         if self.kind in ("sev", "route_disruption"):
             route = data.get("route_health") or {}
             if route.get("alert_source_status") != "online" or not route.get("alert_journey_count"):
@@ -78,6 +102,14 @@ class BahnBinarySensor(CoordinatorEntity, BinarySensorEntity):
     @property
     def extra_state_attributes(self):
         journeys = (self.coordinator.data or {}).get("journeys") or []
+        route = (self.coordinator.data or {}).get("route_health") or {}
+        if self.kind == "route_cancelled":
+            return {"cancelled": [
+                row for row in (route.get("timetable") or {}).get("departures", [])
+                if row.get("cancelled")
+            ]}
+        if self.kind == "route_turnaround_risk":
+            return {"turnaround": route.get("turnaround", {})}
         if self.kind in ("sev", "route_disruption"):
             route = (self.coordinator.data or {}).get("route_health") or {}
             return {
