@@ -1,43 +1,74 @@
-# Neutrale Lovelace-Karte für einen Bahnmonitor im Streckenmodus.
-# In den Zeilen entity_id und {% set monitor = ... %} die echte Entität aus
-# Entwicklerwerkzeuge > Zustände einsetzen (z. B. sensor.arbeitsweg_streckenlage).
+# Generische Home-Assistant-Karte für die Streckenüberwachung.
+# Nur diese beiden Stellen anpassen: entity_id und set route.
 type: markdown
-title: Bahnmonitor · Streckenlage
+title: "🚆 Bahnmonitor – komplette Streckenübersicht"
 entity_id:
   - sensor.meine_strecke_streckenlage
-content: >-
-  {% set monitor = 'sensor.meine_strecke_streckenlage' %}
-  {% set situation = states(monitor) %}
-  {% set messages = state_attr(monitor, 'incidents') or [] %}
-  {% set checked = state_attr(monitor, 'alert_checked_at') %}
-  {% set source = state_attr(monitor, 'alert_source_status') or 'not_checked' %}
-  {% set line = state_attr(monitor, 'direction_labels') or {} %}
+content: |-
+  {% set route = 'sensor.meine_strecke_streckenlage' %}
+  {% set info = state_attr(route, 'direction_labels') or {} %}
+  {% set timetable = state_attr(route, 'timetable') or {} %}
+  {% set rows = timetable.get('departures', []) %}
+  {% set turns = state_attr(route, 'turnaround') or {} %}
+  {% set incidents = state_attr(route, 'incidents') or [] %}
+  {% set source = state_attr(route, 'alert_source_status') or 'not_checked' %}
+  {% set checked = state_attr(route, 'alert_checked_at') %}
 
-  ## 🚆 {{ situation }}
+  ## {{ states(route) }}
 
-  {% if line.same %}
-  **{{ line.same }}** und **{{ line.reverse }}**
+  {% if info.get('same') %}
+  **Strecke:** {{ info.same }}
+  {% else %}
+  Streckenangaben werden geladen.
   {% endif %}
 
-  {% if is_state(monitor, 'unavailable') or is_state(monitor, 'unknown') %}
-  Die Integration liefert aktuell keine auswertbare Streckenlage.
-  {% elif messages %}
-  ### Aktuelle Verkehrs- und Ersatzverkehrshinweise
-  {% for item in messages[:8] %}
-  - **{{ item.type | upper }}** · {{ item.route }}{% if item.line %} · {{ item.line }}{% endif %}: {{ item.text }}
+  ### 🚆 Aktuelle Fahrten – beide Richtungen
+
+  {% if rows %}
+  | Soll | Linie | Richtung | Status | Meldung |
+  | :-- | :-- | :-- | :-- | :-- |
+  {% for item in rows[:20] %}
+  | {{ as_timestamp(item.planned_departure) | timestamp_custom('%H:%M') }} | {{ item.line }} | {{ '→' if item.direction == 'same' else '←' }} | {% if item.cancelled %}**Ausfall**{% elif item.delay_minutes is number and item.delay_minutes > 0 %}+{{ item.delay_minutes }} min{% elif item.delay_minutes == 0 %}Pünktlich{% else %}Sollfahrplan{% endif %} | {{ (item.delay_reason or 'Keine Ursache übermittelt') | replace('|', '/') }} |
   {% endfor %}
   {% else %}
-  Keine ausdrücklichen Verkehrsmeldungen in den aktuell geprüften Verbindungen
-  gefunden. Das ist **keine Bestätigung**, dass die Strecke störungsfrei ist.
+  Keine passenden Fahrten in der **aktuell verfügbaren** Stationstafel.
+  Das bedeutet nicht automatisch einen Zugausfall.
   {% endif %}
 
-  ### Datenlage
-  Verbindungswarnungen: **{{ source }}**
+  ### 🚧 Verkehrsmeldungen & Schienenersatzverkehr
 
+  {% if incidents %}
+  {% for item in incidents[:10] %}
+  - **{{ item.type | upper }}** · {{ item.route }}{% if item.line %} ({{ item.line }}){% endif %}: {{ item.text }}
+  {% endfor %}
+  {% else %}
+  Keine konkrete Verkehrsmeldung übermittelt. **Keine Entwarnung:** Ein SEV
+  kann trotzdem existieren, wenn die abgefragte Datenquelle ihn nicht liefert.
+  {% endif %}
+
+  ### 🔁 Automatische Wendebahnhof-Erkennung
+
+  {% if turns.get('candidates') %}
+  {% for item in turns.candidates[:8] %}
+  - **{{ item.station }} · {{ item.line }}:**
+    Ankunft {{ as_timestamp(item.arrival_scheduled) | timestamp_custom('%H:%M') }}
+    {% if item.incoming_delay_minutes is number %}({{ '%+d' | format(item.incoming_delay_minutes) }} min){% endif %}
+    → Rückfahrt {{ as_timestamp(item.departure_scheduled) | timestamp_custom('%H:%M') }}.
+    {% if item.status == 'ambiguous' %}Mehrere mögliche Zuordnungen.
+    {% elif item.possible_followup_delay is sameas true %}**Mögliche Folgeverspätung:** mindestens {{ item.potential_delay_minutes_if_same_vehicle }} min rechnerisch, nur falls dieselbe Garnitur weiterfährt.
+    {% else %}Mögliche Zugwende; keine bestätigte Fahrzeugzuordnung.{% endif %}
+  {% endfor %}
+  {% else %}
+  Noch keine plausible Zugwende in den vorhandenen Ankunfts- und Abfahrtsdaten.
+  {% endif %}
+
+  ### 📡 Datenquellen
+
+  - Stationstafeln: {{ timetable.get('source_status', 'nicht geprüft') }}
+  - Verkehrsmeldungen: {{ source }}
+  - Wendebahnhof-Erkennung: {{ turns.get('source_status', 'nicht geprüft') }}
   {% if checked %}
-  Letzte Prüfung: {{ as_timestamp(checked) | timestamp_custom('%d.%m.%Y %H:%M') }} Uhr
+  - Verkehrsmeldungen geprüft: {{ as_timestamp(checked) | timestamp_custom('%d.%m.%Y %H:%M') }}
   {% endif %}
 
-  {{ state_attr(monitor, 'alert_note') or '' }}
-
-  {{ state_attr(monitor, 'summary') or '' }}
+  *{{ turns.get('note', 'Wendebeziehungen sind eine Schätzung, keine Umlaufbestätigung.') }}*
