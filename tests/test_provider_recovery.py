@@ -162,7 +162,7 @@ def test_iris_data_remains_fresh_during_v6_outage(monkeypatch):
     assert result["provider_error"] and "503" in result["provider_error"]
     # The coordinator now also samples both route directions. This mock
     # has no shared API cache; the production BahnApi deduplicates calls.
-    assert api.dbf_calls == 3
+    assert api.dbf_calls == 5  # two arrival-board checks for automatic terminal detection
     assert api.v6_calls == 1, "Avoid retrying a failing backend for every future day"
     assert result["journeys"][0]["status"] == "delayed"
     assert result["journeys"][0]["source"] == "DBF/IRIS-TTS"
@@ -226,7 +226,7 @@ def test_1609_route_watched_already_at_0752(monkeypatch):
         assert data["route_health"]["current_count"] == 0
         assert data["route_health"]["same_direction"]["count"] == 1
         assert data["route_health"]["reverse_direction"]["count"] == 0
-        assert api.stations == ["8000128", "8010203"]
+        assert api.stations == ["8000128", "8010203", "8000128", "8010203"]
     finally:
         clock.now = original_now
 
@@ -621,7 +621,7 @@ def test_general_route_monitor_reports_sev_without_scheduled_train(monkeypatch):
     assert initial["route_health"]["sev_reported"] is True
     assert initial["route_health"]["alert_journey_count"] == 2
     assert api.journey_calls == 2
-    assert api.board_calls == 2
+    assert api.board_calls == 4  # both departure boards and both arrival boards
     second = asyncio.run(coordinator._async_update_data())
     assert second["route_health"]["status_code"] == "sev"
     assert api.journey_calls == 2, "Cache recent route alerts, avoid API flooding"
