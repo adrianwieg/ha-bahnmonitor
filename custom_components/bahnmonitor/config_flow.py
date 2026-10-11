@@ -78,6 +78,52 @@ def valid_config(data: dict) -> bool:
     except (ValueError, KeyError, TypeError):
         return False
 
+async def async_resolve_pair(api, submitted: dict, existing: dict | None = None) -> dict:
+    """Allow initial setup during an outage and retry station IDs later.
+
+    A typo is still rejected if the lookup responds normally. An unavailable
+    provider is a transient status, not a reason to discard a valid route.
+    """
+    previous = existing or {}
+    outcome = {}
+    unresolved = []
+    for field in ("origin", "destination"):
+        entered = submitted[field].strip()
+        if (
+            entered.casefold() == str(previous.get(field, "")).strip().casefold()
+            and str(previous.get(f"{field}_id") or "").strip()
+        ):
+            outcome[field] = previous[field]
+            outcome[f"{field}_id"] = previous[f"{field}_id"]
+            continue
+        try:
+            ident, actual_name = await api.resolve_station(entered)
+        except StationNotFound:
+            raise
+        except BahnApiError as exc:
+            _LOGGER.warning(
+                "Bahnmonitor: Bahnhof '%s' derzeit nicht auflösbar; "
+                "versuche später automatisch erneut: %s",
+                entered, exc,
+            )
+            unresolved.append(field)
+            outcome[field] = entered
+            outcome[f"{field}_id"] = ""
+        else:
+            outcome[field] = actual_name
+            outcome[f"{field}_id"] = ident
+
+    if (
+        outcome["origin_id"] and outcome["destination_id"]
+        and str(outcome["origin_id"]) == str(outcome["destination_id"])
+    ):
+        raise StationNotFound(
+            "Start- und Zielbahnhof wurden auf dieselbe EVA-ID aufgelöst."
+        )
+    outcome["station_lookup_pending"] = bool(unresolved)
+    return outcome
+
+
 class BahnmonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 1
 
@@ -94,16 +140,11 @@ class BahnmonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             else:
                 api = BahnApi(async_get_clientsession(self.hass))
                 try:
-                    origin_id, origin_name = await api.resolve_station(user_input["origin"].strip())
-                    destination_id, destination_name = await api.resolve_station(user_input["destination"].strip())
+                    user_input.update(await async_resolve_pair(api, user_input))
                 except StationNotFound as exc:
                     _LOGGER.warning("Bahnmonitor: %s", exc)
                     errors["base"] = "station_not_found"
-                except BahnApiError as exc:
-                    _LOGGER.warning("Bahnmonitor: Bahnhofsdienst-Fehler bei der Einrichtung: %s", exc)
-                    errors["base"] = "connection_error"
                 else:
-                    user_input.update(origin_id=origin_id, origin=origin_name, destination_id=destination_id, destination=destination_name)
                     return self.async_create_entry(title=user_input["name"], data=user_input)
         return self.async_show_form(step_id="user", data_schema=schema(user_input), errors=errors)
 
@@ -121,17 +162,13 @@ class BahnmonitorOptionsFlow(config_entries.OptionsFlowWithReload):
                 errors["base"] = "invalid_settings"
             else:
                 api = BahnApi(async_get_clientsession(self.hass))
+                previous = {**self.config_entry.data, **self.config_entry.options}
                 try:
-                    origin_id, origin_name = await api.resolve_station(user_input["origin"].strip())
-                    destination_id, destination_name = await api.resolve_station(user_input["destination"].strip())
+                    user_input.update(await async_resolve_pair(api, user_input, previous))
                 except StationNotFound as exc:
                     _LOGGER.warning("Bahnmonitor: %s", exc)
                     errors["base"] = "station_not_found"
-                except BahnApiError as exc:
-                    _LOGGER.warning("Bahnmonitor: Bahnhofsdienst-Fehler bei der Einrichtung: %s", exc)
-                    errors["base"] = "connection_error"
                 else:
-                    user_input.update(origin_id=origin_id, origin=origin_name, destination_id=destination_id, destination=destination_name)
                     return self.async_create_entry(data=user_input)
         defaults = {**self.config_entry.data, **self.config_entry.options, **(user_input or {})}
         return self.async_show_form(step_id="init", data_schema=schema(defaults), errors=errors)
