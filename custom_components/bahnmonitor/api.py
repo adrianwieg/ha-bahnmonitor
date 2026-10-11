@@ -127,6 +127,23 @@ class BahnApi:
             raise BahnApiError("Invalid arrivals response")
         return data
 
+    async def journeys(self, origin_id: str, destination_id: str, when: datetime) -> dict:
+        """Fetch currently offered connections including cancelled services and warnings.
+
+        HYBRID also considers cancelled journeys; bus legs are deliberately
+        retained so published rail replacement services can be recognised.
+        """
+        data = await self._get("/journeys", {
+            "from": origin_id, "to": destination_id,
+            "departure": when.isoformat(), "results": 6,
+            "routingMode": "HYBRID", "remarks": "true",
+            "stopovers": "true", "language": "de",
+            "startWithWalking": "false", "pretty": "false",
+        })
+        if not isinstance(data, dict) or not isinstance(data.get("journeys"), list):
+            raise BahnApiError("Invalid journey response")
+        return data
+
     async def trip(self, trip_id: str) -> dict:
         from urllib.parse import quote
         data = await self._get(f"/trips/{quote(trip_id, safe='')}", {"stopovers": "true", "pretty": "false"})
