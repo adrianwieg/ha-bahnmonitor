@@ -710,11 +710,8 @@ class BahnCoordinator(DataUpdateCoordinator):
             return value if value in ("origin", "destination", "off", "auto") else "off"
         if not self.settings.get("turnaround", True):
             return "off"
-        return (
-            "origin"
-            if self.settings.get("origin", "").casefold() == "göttingen"
-            else "off"
-        )
+        # No location-specific defaults: evaluate terminal turns at both ends.
+        return "auto"
 
     def _turnaround_state(self) -> dict:
         choice = self._turnaround_choice()
