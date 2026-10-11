@@ -63,13 +63,16 @@ def matches_line(train: str | None, line: str) -> bool:
     """
     if not isinstance(train, str) or not isinstance(line, str):
         return False
-    target = re.fullmatch(r"RE\s*([0-9]+)", line.strip(), flags=re.IGNORECASE)
+    target = re.fullmatch(r"([A-Z]{1,4})\s*([0-9]+[A-Z]?)", line.strip().upper())
     if target:
-        line_numbers = set(re.findall(
-            r"(?<![A-Z0-9])RE\s*([0-9]+)(?![A-Z0-9])",
+        product, number = target.groups()
+        # Supports RE, RB, S, ICE, IC, and other named train products.
+        # For example, "RE RE1" must never match RE11 or RE16243.
+        observed = set(re.findall(
+            rf"(?<![A-Z0-9]){re.escape(product)}\s*([0-9]+[A-Z]?)(?![A-Z0-9])",
             train.upper(),
         ))
-        return line_numbers == {target.group(1)}
+        return observed == {number}
     actual = re.sub(r"\s+", "", train).upper()
     expected = re.sub(r"\s+", "", line).upper()
     return bool(expected) and (actual == expected or actual.startswith(expected + "("))
