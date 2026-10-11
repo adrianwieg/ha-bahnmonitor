@@ -9,11 +9,13 @@ from .presentation import format_journey, hhmm as result_time
 
 async def async_setup_entry(hass, entry, async_add_entities):
     coordinator = entry.runtime_data
-    async_add_entities([
-        BahnJourneySensor(coordinator, entry),
+    entities = [
         BahnRouteHealthSensor(coordinator, entry),
         BahnProviderSensor(coordinator, entry),
-    ])
+    ]
+    if coordinator.settings.get("monitor_mode", "train") != "route":
+        entities.insert(0, BahnJourneySensor(coordinator, entry))
+    async_add_entities(entities)
 
 
 class BahnEntity(CoordinatorEntity, SensorEntity):
