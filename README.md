@@ -4,6 +4,27 @@ Generische Home-Assistant-Integration für **Streckenmeldungen** und optional **
 
 **Entwicklungsstand:** Die neue Streckenüberwachung benötigt einen Praxistest mit Home Assistant und tatsächlich veröffentlichten SEV-Meldungen. Die Datenquellen sind keine amtlich vollständige Baustellen- oder Sperrungsdatenbank.
 
+## Fehlerrobuste Bahnhofssuche (v0.4.1)
+
+Die Bahnhofssuche nutzt **zunächst das statische DB-Stationsverzeichnis**
+(`/stations`), bei fehlendem eindeutigem Treffer zusätzlich die
+**dynamische Bahnhofssuche** (`/locations`). Das Stationsverzeichnis
+funktioniert unabhängig von der Live-Bahnhofssuchlogik und wird für
+beliebige Bahnhöfe verwendet – nicht nur für die Teststrecke.
+
+Falls beide Dienste vorübergehend ausfallen, **kann die Strecke trotzdem
+eingerichtet werden**. Der Sensor `Streckenlage` zeigt dann
+`Bahnhofsdaten fehlen` mit `station_lookup_pending`. Die Integration
+versucht die fehlenden EVA-IDs im Hintergrund in Abständen von 15 Minuten
+erneut zu laden und speichert sie nach erfolgreicher Auflösung. Währenddessen
+werden weder eine fiktive Störung noch ein störungsfreier Verkehr behauptet.
+
+Wird bei **erreichbaren** Suchdiensten kein eindeutiger Bahnhof gefunden,
+ist der vollständige Bahnhofsname (z. B. `Erfurt Hbf`) erforderlich.
+Alternativ kann eine bekannte, gültige **numerische EVA-ID** direkt in das
+Bahnhofsfeld eingetragen werden. Sie benötigt bei der Einrichtung keine
+Online-Bahnhofssuche.
+
 ## Streckenüberwachung – jetzt der Standard
 
 Neue Monitor-Einträge benötigen nur **Name, Startbahnhof und Zielbahnhof**. Eine **Linie ist optional** (z. B. `RE 1` oder `RE 1, RE 11`). Keine feste Abfahrt, Wochentage oder manuelle Wendebahnhof-Wahl für den Streckenmodus erforderlich. Frühere Einzelzug-Konfigurationen bleiben aus Kompatibilitätsgründen editierbar.
