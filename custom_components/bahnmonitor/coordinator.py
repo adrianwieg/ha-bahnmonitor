@@ -202,10 +202,11 @@ class BahnCoordinator(DataUpdateCoordinator):
         )
         # Save recovered IDs to prevent another lookup on every HA restart.
         # Guard for isolated test stubs with hass=None.
-        if self.hass is not None:
-            entry = self.hass.config_entries.async_get_entry(self._entry_id)
+        hass = getattr(self, "hass", None)
+        if hass is not None:
+            entry = hass.config_entries.async_get_entry(self._entry_id)
             if entry is not None:
-                self.hass.config_entries.async_update_entry(
+                hass.config_entries.async_update_entry(
                     entry, data={**entry.data,
                                   "origin": self.settings["origin"],
                                   "origin_id": self.settings["origin_id"],
