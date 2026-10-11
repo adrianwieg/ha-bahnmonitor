@@ -104,6 +104,7 @@ def detect_turnarounds(
     min_turn = max(0, min(30, int(min_turn_minutes)))
     max_turn = max(10, min(120, int(max_turn_minutes)))
     coverage = 0
+    relevant_services = 0
 
     for endpoint in endpoints:
         station = endpoint["station"]
@@ -135,6 +136,8 @@ def detect_turnarounds(
                     now - timedelta(minutes=90) <= when <= now + timedelta(minutes=120)):
                 continue
             outbound.append((row, line, when))
+
+        relevant_services += len(inbound) + len(outbound)
 
         # One-to-one uniqueness: never silently pick from two possible incoming
         # trains or two possible return workings.
@@ -225,10 +228,12 @@ def detect_turnarounds(
         "status": (
             "plausible" if any(row["status"] == "plausible" for row in candidates)
             else "ambiguous" if candidates else
-            "not_found" if coverage == len(endpoints) else "source_unavailable"
+            "source_unavailable" if coverage == 0 else
+            "insufficient_data" if relevant_services == 0 else "not_found"
         ),
         "candidates": candidates,
         "candidate_count": len(candidates),
+        "relevant_services": relevant_services,
         "stations": sorted({row["station"] for row in candidates if row["status"] == "plausible"}),
         "possible_followup_delay": any(row["possible_followup_delay"] is True for row in candidates),
         "source_status": "online" if coverage == len(endpoints) else "partial" if coverage else "unavailable",
