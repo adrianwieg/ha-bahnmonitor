@@ -183,7 +183,11 @@ class BahnCoordinator(DataUpdateCoordinator):
             else:
                 self.settings[f"{key}_id"] = station_id
                 self.settings[key] = station_name
-        if self.settings.get("origin_id") == self.settings.get("destination_id"):
+        if (
+            self.settings.get("origin_id")
+            and self.settings.get("destination_id")
+            and self.settings["origin_id"] == self.settings["destination_id"]
+        ):
             errors.append("Start und Ziel haben dieselbe Bahnhof-ID")
             self.settings["destination_id"] = ""
         if errors or not (
