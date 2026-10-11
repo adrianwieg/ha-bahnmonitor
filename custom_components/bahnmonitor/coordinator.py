@@ -13,7 +13,7 @@ from .gtfs import GtfsError
 from .dbf import board_departure, incoming_candidates, match_inbound_origin
 from .disruptions import extract_route_alerts, merge_route_alerts
 from .turnaround import detect_turnarounds
-from .route_departures import collect_departures, summarise_departures
+from .route_departures import collect_departures, collect_arrivals, summarise_departures
 from .route_health import collect_previous, collect_upcoming, observation_key, summarise
 from .logic import (
     cancellation, delay_minutes, evaluate_turnaround, matches_departure,
@@ -511,6 +511,7 @@ class BahnCoordinator(DataUpdateCoordinator):
     async def _detect_route_turnarounds(
         self, now: datetime, lines: tuple[str, ...],
         departure_boards: dict[str, list[dict]] | None = None,
+        arrival_boards: dict[str, list[dict]] | None = None,
     ) -> dict:
         """Observe arrival and departure boards at both endpoints, both ways."""
         boards = []
@@ -520,17 +521,21 @@ class BahnCoordinator(DataUpdateCoordinator):
         ):
             endpoint = {
                 "station": station, "other": other,
-                "arrivals": None,
+                "arrivals": (
+                    arrival_boards.get(station_id)
+                    if arrival_boards is not None else None
+                ),
                 "departures": (
                     departure_boards.get(station_id)
                     if departure_boards is not None else None
                 ),
             }
-            try:
-                # The API caches the same station board for arrivals/departures.
-                endpoint["arrivals"] = await self.api.dbf_board(station_id, mode="arr")
-            except BahnApiError:
-                pass
+            if arrival_boards is None:
+                try:
+                    # The API caches the same station board for arrivals/departures.
+                    endpoint["arrivals"] = await self.api.dbf_board(station_id, mode="arr")
+                except BahnApiError:
+                    pass
             if endpoint["departures"] is None and departure_boards is None:
                 try:
                     endpoint["departures"] = await self.api.dbf_board(station_id, mode="dep")
@@ -546,9 +551,10 @@ class BahnCoordinator(DataUpdateCoordinator):
     async def _with_turnarounds(
         self, route: dict, now: datetime, lines: tuple[str, ...],
         departure_boards: dict[str, list[dict]] | None = None,
+        arrival_boards: dict[str, list[dict]] | None = None,
     ) -> dict:
         route["turnaround"] = await self._detect_route_turnarounds(
-            now, lines, departure_boards,
+            now, lines, departure_boards, arrival_boards,
         )
         return await self._with_alerts(route, now)
 
@@ -579,6 +585,8 @@ class BahnCoordinator(DataUpdateCoordinator):
         boards_by_station: dict[str, list[dict]] = {}
         upcoming: list[dict] = []
         departures_all: list[dict] = []
+        arrivals_all: list[dict] = []
+        arrivals_by_station: dict[str, list[dict]] = {}
         observations_changed = False
         for direction, station_id, origin, destination in (
             ("same", self.settings["origin_id"],
@@ -637,13 +645,31 @@ class BahnCoordinator(DataUpdateCoordinator):
                 120,
             )
 
+        for direction, station_id, origin, destination in (
+            ("same", self.settings["destination_id"],
+             self.settings["origin"], self.settings["destination"]),
+            ("reverse", self.settings["origin_id"],
+             self.settings["destination"], self.settings["origin"]),
+        ):
+            try:
+                board = await self.api.dbf_board(station_id, mode="arr")
+            except BahnApiError:
+                continue
+            arrivals_by_station[station_id] = board
+            arrivals_all.extend(collect_arrivals(
+                board, now=now, origin=origin, destination=destination,
+                direction=direction, lines=lines,
+            ))
+
         data = summarise(
             list(self._route_observations.values()), target=target_for_summary,
             now=now, limit=3, upcoming=upcoming,
         )
         data["timetable"] = summarise_departures(
             departures_all, now=now, sources_ok=successful,
+            arrivals=arrivals_all,
         )
+        data["arrivals"] = data["timetable"]["arrivals"]
         data["departures"] = data["timetable"]["departures"]
         data["departure_count"] = data["timetable"]["departure_count"]
         own_route = (
@@ -701,7 +727,9 @@ class BahnCoordinator(DataUpdateCoordinator):
             data["status"], data["sample_count"], data["current_count"],
             data["source_status"],
         )
-        return await self._with_turnarounds(data, now, lines, boards_by_station)
+        return await self._with_turnarounds(
+            data, now, lines, boards_by_station, arrivals_by_station,
+        )
 
     def _turnaround_choice(self) -> str:
         """Apply the GUI choice; keep old entries without an option compatible."""
