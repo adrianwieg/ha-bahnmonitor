@@ -1,8 +1,31 @@
 # Bahnmonitor – Home Assistant
 
-Custom Integration zur Überwachung wiederkehrender Zugfahrten und der Streckenlage. Entwickelt für **RE 1 und RE 11 zwischen Göttingen und Leinefelde**, mit frei konfigurierbaren Start- und Zielbahnhöfen.
+Generische Home-Assistant-Integration für **Streckenmeldungen** und optional **wiederkehrende Zugfahrten** in Deutschland. Start und Ziel sind frei konfigurierbar. Göttingen–Leinefelde ist nur ein Testbeispiel, keine feste Vorgabe.
 
-**Version 0.3.5 – Prototyp**. Installation über HACS möglich; API- und Fahrplandaten müssen im eigenen Home Assistant praktisch geprüft werden.
+**Entwicklungsstand:** Die neue Streckenüberwachung benötigt einen Praxistest mit Home Assistant und tatsächlich veröffentlichten SEV-Meldungen. Die Datenquellen sind keine amtlich vollständige Baustellen- oder Sperrungsdatenbank.
+
+## Neu: Streckenmodus, Schienenersatzverkehr und Verkehrsmeldungen
+
+Beim Hinzufügen gibt es zwei Betriebsarten:
+
+1. **Strecke überwachen (neu, Standard):** Start und Ziel eingeben, optional eine oder mehrere Linien (z. B. `RE 1, RE 11`) als Filter für die zusätzlich gesammelten IRIS-Zugbeobachtungen. Keine feste Uhrzeit oder Wochentage nötig.
+2. **Wiederkehrende Zugfahrt (kompatibel zu älteren Einträgen):** Zusätzlich Linie, HH:MM, Tage und optional die bisherige Vorleistungsprüfung festlegen. Bereits angelegte Einträge bleiben zunächst in dieser Betriebsart.
+
+Für die Verkehrsmeldungen fragt die Integration in beide Richtungen jeweils einige aktuelle Verbindungen über `v6.db.transport.rest/journeys` ab (`routingMode=HYBRID`, Hinweise aktiviert, Busse eingeschlossen). Explizite Hinweise in Verbindungsabschnitten werden nach **SEV, Streckensperrung, Ausfall, Bauarbeiten, Umleitung und Verspätung** klassifiziert. Ein ausdrücklich als Ersatzverkehr gekennzeichneter Bus wird erkannt. **Ein gewöhnlicher Bus im Reiseweg ist dagegen kein Beleg für SEV.**
+
+Die Abfrage erfolgt höchstens alle **30 Minuten pro Integrationseintrag** und nutzt den Zwischenspeicher, damit öffentliche Dienste nicht übermäßig belastet werden. Die bestehende IRIS-Zughistorie wird unabhängig davon erhoben, falls aktiviert.
+
+In Home Assistant gibt es:
+
+- Sensor **Streckenlage**: Status `Schienenersatzverkehr gemeldet` bei bestätigtem Hinweis; Attribute `incidents`, `sev_reported`, `alert_checked_at`, `alert_source_status`, `alert_journey_count`, `alert_note`.
+- Binärsensor **Schienenersatzverkehr** sowie **Störungsmeldung**. Bei lückenhafter Quelle, fehlenden Verbindungen oder Teilabdeckung sind diese **unverfügbar**, statt fälschlich auf `off` zu gehen.
+- Sensor **Fahrplandienst** für die Verfügbarkeit; bei Einzelzug-Konfiguration bleiben **Nächste Fahrt**, **Zugausfall** und **Mögliche Folgeverspätung** erhalten.
+
+**Wichtig:** Eine fehlende Verkehrsmeldung ist **keine Entwarnung**. Die API gibt nur Hinweise zu den gefundenen Verbindungen und keine garantierte vollständige Liste aller Baustellen zurück. Bei einem Provider-Ausfall wird ein zuvor erkannter SEV nicht als aktuell bestätigt weiter angezeigt; ein Zeitstempel und die Quellenlage bleiben separat sichtbar. Für einen konkreten SEV auf einer Strecke muss der Anbieter entsprechende Hinweise oder gekennzeichnete Ersatzbusse zurückliefern.
+
+Eine neutrale Beispielkarte ohne fest hinterlegte Bahnhöfe findest du unter [`examples/route_monitor_card.yaml`](examples/route_monitor_card.yaml).
+
+**Quelle:** [db.transport.rest API-Dokumentation](https://v6.db.transport.rest/api.html).
 
 ## Veröffentlichte Verspätungsgründe für RE 1/RE 11 (v0.3.5)
 

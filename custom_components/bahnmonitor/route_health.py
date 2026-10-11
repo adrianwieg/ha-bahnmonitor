@@ -1,4 +1,4 @@
-"""Daily RE 1 / RE 11 corridor context from IRIS station boards.
+"""General corridor context from IRIS station boards.
 
 Always observe both directions during the day, regardless of the user's
 configured departure time. This describes today's corridor, NOT a reliable
@@ -8,10 +8,9 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from statistics import mean
+import re
 
 from .dbf import clock_on_day, goes_to_destination, matches_line, delay_messages
-
-LINES = ("RE 1", "RE 11")
 MAX_PREVIOUS = 3
 UPCOMING_MINUTES = 45
 
@@ -27,12 +26,29 @@ def _normalise_entry(
     origin: str,
     destination: str,
     now: datetime,
+    lines: tuple[str, ...] = (),
 ) -> dict | None:
     if not isinstance(item, dict) or not goes_to_destination(item, destination):
         return None
-    line = next((line for line in LINES if matches_line(item.get("train"), line)), None)
-    if line is None:
-        return None
+    if lines:
+        line = next((
+            value for value in lines
+            if matches_line(item.get("train"), value)
+            or matches_line(item.get("line"), value)
+        ), None)
+        if line is None:
+            return None
+    else:
+        train = str(item.get("train") or "")
+        # No line filter: derive the passenger-facing designation from IRIS.
+        # Excludes unrelated/non-rail services without imposing a regional line.
+        match = re.search(
+            r"\b(RE|RB|IRE|ICE|IC|EC|S|MEX|ALX|TLX|RS)\s*(?:\1\s*)?(\d+[A-Z]?)\b",
+            train, re.IGNORECASE,
+        )
+        if match is None:
+            return None
+        line = f"{match.group(1).upper()} {match.group(2).upper()}"
     when = clock_on_day(item.get("scheduledDeparture"), now)
     if when is None:
         return None
@@ -73,7 +89,7 @@ def collect_previous(
     destination: str,
     planned: datetime,
     now: datetime,
-    lines: tuple[str, ...] = LINES,
+    lines: tuple[str, ...] = (),
 ) -> list[dict]:
     """Observed trains scheduled earlier TODAY, even before a 16:09 departure.
 
@@ -86,9 +102,9 @@ def collect_previous(
     for item in board:
         record = _normalise_entry(
             item, direction=direction, origin=origin,
-            destination=destination, now=now,
+            destination=destination, now=now, lines=lines,
         )
-        if record is None or record["line"] not in lines:
+        if record is None:
             continue
         departure = datetime.fromisoformat(record["scheduled_departure"])
         if lower <= departure < now and (
@@ -107,13 +123,14 @@ def collect_upcoming(
     destination: str,
     now: datetime,
     minutes: int = UPCOMING_MINUTES,
+    lines: tuple[str, ...] = (),
 ) -> list[dict]:
     """Current near-future departure forecasts, separate from earlier trains."""
     records = []
     for item in board:
         record = _normalise_entry(
             item, direction=direction, origin=origin,
-            destination=destination, now=now,
+            destination=destination, now=now, lines=lines,
         )
         if record is None:
             continue
@@ -267,7 +284,7 @@ def summarise(
         code, label = "normal", "Unauffällig"
 
     if not all_relevant:
-        description = "Bisher keine auswertbaren RE-1-/RE-11-Meldungen von heute."
+        description = "Bisher keine auswertbaren Zugbeobachtungen für diese Verbindung von heute."
     else:
         description = (
             f"Heute: {sample} Sollabfahrten mit vergangener Prognosezeit, "
@@ -277,7 +294,7 @@ def summarise(
         )
         if sample < 2:
             description += " Datenlage begrenzt."
-        description += " Keine gesicherte Prognose für deine eigene Zugfahrt."
+        description += " Keine gesicherte Prognose für eine bestimmte spätere Zugfahrt."
 
     # Explicitly disclose WHY the indicator is elevated. Separate earlier
     # trains from short-term predictions, to avoid misrepresenting a future
@@ -318,7 +335,7 @@ def summarise(
         if isinstance(delay_reason, str) and delay_reason.strip():
             situation += f"; gemeldeter Grund: {delay_reason}"
         reasons.append(
-            f"{ts} {row['line']} ({route}, {observation_label}): {situation}"
+            f"{ts} {row.get('line') or row.get('train') or 'Zug'} ({route}, {observation_label}): {situation}"
         )
     if reasons:
         cause = "; ".join(reasons[:6])

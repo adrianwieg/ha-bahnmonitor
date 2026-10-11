@@ -222,10 +222,10 @@ def test_1609_route_watched_already_at_0752(monkeypatch):
         assert data["route_health"]["monitoring_active"] is True
         assert data["route_health"]["source_status"] == "online"
         assert data["route_health"]["status"] == "Auffällig"
-        assert data["route_health"]["sample_count"] == 2
-        assert data["route_health"]["current_count"] == 1
+        assert data["route_health"]["sample_count"] == 1
+        assert data["route_health"]["current_count"] == 0
         assert data["route_health"]["same_direction"]["count"] == 1
-        assert data["route_health"]["reverse_direction"]["count"] == 1
+        assert data["route_health"]["reverse_direction"]["count"] == 0
         assert api.stations == ["8000128", "8010203"]
     finally:
         clock.now = original_now
@@ -580,3 +580,48 @@ def test_turnaround_without_correlated_opposite_departure_still_reports_risk(mon
     assert result["incoming_departure_match"] == "not_found"
     assert result["incoming_departure_planned"] is None
     assert result["confirmed_vehicle"] is False
+
+
+def test_general_route_monitor_reports_sev_without_scheduled_train(monkeypatch):
+    """The default route mode must work without line, weekdays or a time."""
+    code, _ = load_coordinator(monkeypatch)
+
+    class LiveProvider:
+        def __init__(self):
+            self.journey_calls = 0
+            self.board_calls = 0
+
+        async def dbf_board(self, station, mode="dep"):
+            self.board_calls += 1
+            return []
+
+        async def journeys(self, origin, destination, when):
+            self.journey_calls += 1
+            return {"journeys": [{
+                "legs": [{
+                    "line": {"name": "SEV RE 1"},
+                    "remarks": [{"text": "Schienenersatzverkehr zwischen den Bahnhöfen"}],
+                }],
+            }]}
+
+    api = LiveProvider()
+    settings = {
+        "monitor_mode": "route", "name": "Beliebige Verbindung",
+        "origin_id": "8010203", "destination_id": "8000128",
+        "origin": "Leinefelde", "destination": "Göttingen",
+        "line": "", "history_enabled": True,
+    }
+    coordinator = code.BahnCoordinator(None, api, settings, "route-test")
+    snapshot = coordinator._startup_snapshot(NOW)
+    assert snapshot["journeys"] == []
+    initial = asyncio.run(coordinator._async_update_data())
+    assert initial["journeys"] == []
+    assert initial["provider_status"] == "online"
+    assert initial["route_health"]["status_code"] == "sev"
+    assert initial["route_health"]["sev_reported"] is True
+    assert initial["route_health"]["alert_journey_count"] == 2
+    assert api.journey_calls == 2
+    assert api.board_calls == 2
+    second = asyncio.run(coordinator._async_update_data())
+    assert second["route_health"]["status_code"] == "sev"
+    assert api.journey_calls == 2, "Cache recent route alerts, avoid API flooding"

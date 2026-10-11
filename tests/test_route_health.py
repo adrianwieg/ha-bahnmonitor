@@ -62,7 +62,7 @@ def test_ambiguous_or_unobserved_trains_do_not_create_risk():
         {"train": "RE RE1", "destination": "Göttingen", "scheduledDeparture": "15:22"},
         {"train": "RE RE11", "destination": "Göttingen", "scheduledDeparture": "16:02", "delayDeparture": 20},
     ]
-    result = health.collect_previous(board, direction="same", origin="Leinefelde", destination="Göttingen", planned=target, now=now)
+    result = health.collect_previous(board, direction="same", origin="Leinefelde", destination="Göttingen", planned=target, now=now, lines=("RE 1", "RE 11"))
     assert result == []
     assert health.summarise(result, target=target, now=now)["status_code"] == "no_data"
 
