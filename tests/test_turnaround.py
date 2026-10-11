@@ -173,3 +173,11 @@ def test_unrelated_incoming_service_does_not_belong_to_monitored_route():
         direction="same", lines=("RE 1",),
     )
     assert arrivals == []
+
+
+def test_empty_live_boards_cannot_prove_absence_of_turnaround():
+    report = scan([], [])
+    assert report["status"] == "insufficient_data"
+    assert report["candidate_count"] == 0
+    assert report["relevant_services"] == 0
+    assert report["source_status"] == "online"
