@@ -9,7 +9,7 @@ from urllib.parse import quote
 from aiohttp import ClientError, ClientSession
 
 from .const import API_URL
-from .stations import known_station
+from .stations import known_station, select_station
 
 
 class BahnApiError(Exception):
@@ -88,18 +88,51 @@ class BahnApi:
             raise BahnApiError(str(exc)) from exc
 
     async def resolve_station(self, station: str) -> tuple[str, str]:
+        """Resolve arbitrary German railway stations, without requiring HAFAS.
+
+        The static DB station index has a separate lookup implementation from
+        the live HAFAS /locations API. Use exact matching to avoid silently
+        selecting a similarly named suburb. Explicit EVA IDs need no network.
+        """
+        station = station.strip()
         known = known_station(station)
         if known is not None:
             return known
-        results = await self._get("/locations", {"query": station, "results": 8, "poi": "false", "addresses": "false"})
-        if not isinstance(results, list):
-            raise BahnApiError("Invalid location response")
-        candidates = [x for x in results if isinstance(x, dict) and x.get("id") and x.get("type") in ("stop", "station")]
-        exact = next((x for x in candidates if x.get("name", "").casefold() == station.casefold()), None)
-        chosen = exact or next((x for x in candidates if x.get("name", "").casefold().startswith(station.casefold())), None)
-        if not chosen:
-            raise StationNotFound(f"Bahnhof nicht gefunden: {station}")
-        return str(chosen["id"]), str(chosen["name"])
+        if station.isdigit() and 5 <= len(station) <= 9:
+            return (station, station)
+
+        errors = []
+        available = False
+        # /stations is backed by a static station directory, unlike /locations.
+        # If one backend fails, always attempt the other one.
+        for endpoint, params in (
+            ("/stations", {"query": station, "limit": 15, "fuzzy": "false"}),
+            ("/locations", {
+                "query": station, "results": 15,
+                "poi": "false", "addresses": "false",
+            }),
+        ):
+            try:
+                result = await self._get(endpoint, params)
+            except BahnApiError as exc:
+                errors.append(f"{endpoint}: {exc}")
+                continue
+            if not isinstance(result, (dict, list)):
+                errors.append(f"{endpoint}: Ungültige Antwort")
+                continue
+            available = True
+            selected = select_station(result, station)
+            if selected is not None:
+                return selected
+        if not available:
+            raise BahnApiError(
+                "Bahnhofssuche derzeit nicht erreichbar ("
+                + "; ".join(errors) + ")"
+            )
+        raise StationNotFound(
+            f"Kein eindeutig passender Bahnhof für '{station}'. "
+            "Bitte vollständigen Bahnhofsnamen oder EVA-ID verwenden."
+        )
 
     async def departures(self, station_id: str, when: datetime, minutes: int) -> list[dict]:
         data = await self._get(f"/stops/{station_id}/departures", {
