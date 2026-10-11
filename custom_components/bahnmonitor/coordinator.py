@@ -52,6 +52,9 @@ class BahnCoordinator(DataUpdateCoordinator):
         self._alerts_checked_at: datetime | None = None
         self._alerts_retry_at: datetime | None = None
         self._alerts_cache: dict | None = None
+        self._entry_id = entry_id
+        self._station_retry_at: datetime | None = None
+        self._station_lookup_error: str | None = None
         self._dbf_debug: dict = {
             "status": "not_checked",
             "reason": "No departure in realtime window has been checked yet",
@@ -120,10 +123,104 @@ class BahnCoordinator(DataUpdateCoordinator):
             },
         }
 
+    def _station_waiting_snapshot(self, now: datetime) -> dict:
+        """A temporary location lookup outage must not crash the integration."""
+        info = self._station_lookup_error or "Bahnhofsdaten werden automatisch nachgeladen."
+        return {
+            "journeys": [],
+            "provider_status": "unavailable",
+            "provider_error": info,
+            "checked_at": now.isoformat(),
+            "retry_at": self._station_retry_at.isoformat() if self._station_retry_at else None,
+            "route_health": {
+                "status": "Bahnhofsdaten fehlen",
+                "status_code": "station_lookup_pending",
+                "summary": (
+                    f"{self.settings.get('origin')} → {self.settings.get('destination')}: "
+                    "Bahnhofs-IDs fehlen; die Bahnhofssuche wird automatisch wiederholt. "
+                    "Solange sind keine belastbaren Streckenmeldungen verfügbar."
+                ),
+                "source_status": "unavailable",
+                "alert_source_status": "unavailable",
+                "sev_reported": False,
+                "incidents": [],
+                "sample_count": 0,
+                "timetable": {"source_status": "unavailable", "departures": [], "arrivals": []},
+                "turnaround": {"status": "source_unavailable", "source_status": "unavailable",
+                                "candidates": []},
+                "direction_labels": {
+                    "same": f"{self.settings.get('origin')} → {self.settings.get('destination')}",
+                    "reverse": f"{self.settings.get('destination')} → {self.settings.get('origin')}",
+                },
+            },
+            "diagnostics": {
+                "station_lookup": {
+                    "status": "pending",
+                    "error": info,
+                    "retry_at": self._station_retry_at.isoformat() if self._station_retry_at else None,
+                    "origin_id": self.settings.get("origin_id") or None,
+                    "destination_id": self.settings.get("destination_id") or None,
+                },
+            },
+        }
+
+    async def _ensure_station_ids(self, now: datetime) -> bool:
+        """Retry missing EVA IDs without failing setup or spamming the provider."""
+        if self.settings.get("origin_id") and self.settings.get("destination_id"):
+            return True
+        if self._station_retry_at and now < self._station_retry_at:
+            return False
+        errors = []
+        for key in ("origin", "destination"):
+            if self.settings.get(f"{key}_id"):
+                continue
+            try:
+                station_id, station_name = await self.api.resolve_station(
+                    self.settings[key]
+                )
+            except BahnApiError as exc:
+                errors.append(f"{self.settings[key]}: {exc}")
+            else:
+                self.settings[f"{key}_id"] = station_id
+                self.settings[key] = station_name
+        if self.settings.get("origin_id") == self.settings.get("destination_id"):
+            errors.append("Start und Ziel haben dieselbe Bahnhof-ID")
+            self.settings["destination_id"] = ""
+        if errors or not (
+            self.settings.get("origin_id") and self.settings.get("destination_id")
+        ):
+            self._station_lookup_error = "; ".join(errors) or "Bahnhofssuche nicht verfügbar"
+            self._station_retry_at = now + timedelta(minutes=15)
+            return False
+
+        self._station_lookup_error = None
+        self._station_retry_at = None
+        self.settings["station_lookup_pending"] = False
+        _LOGGER.info(
+            "Bahnmonitor: Bahnhofsdaten erfolgreich nachgeladen: %s → %s",
+            self.settings["origin"], self.settings["destination"],
+        )
+        # Save recovered IDs to prevent another lookup on every HA restart.
+        # Guard for isolated test stubs with hass=None.
+        if self.hass is not None:
+            entry = self.hass.config_entries.async_get_entry(self._entry_id)
+            if entry is not None:
+                self.hass.config_entries.async_update_entry(
+                    entry, data={**entry.data,
+                                  "origin": self.settings["origin"],
+                                  "origin_id": self.settings["origin_id"],
+                                  "destination": self.settings["destination"],
+                                  "destination_id": self.settings["destination_id"],
+                                  "station_lookup_pending": False},
+                )
+        return True
+
     async def _async_update_data(self) -> dict:
         now = dt_util.now().astimezone(TZ)
         if self._startup_lightweight:
             return self._startup_snapshot(now)
+        if not await self._ensure_station_ids(now):
+            return self._station_waiting_snapshot(now)
         if self.settings.get("monitor_mode", "train") == "route":
             return await self._async_update_route_only(now)
         hour, minute = (int(x) for x in self.settings["departure_time"].split(":")[:2])
