@@ -57,8 +57,11 @@ def _stop_names(value: Any) -> list[str]:
 
 def _terminal_evidence(arrival: dict, station: str) -> str | None:
     """Terminal must be explicit, not merely the destination of our query."""
-    if norm(_stop_name(arrival.get("destination"))) == norm(station):
-        return "published_destination"
+    published = _stop_name(arrival.get("destination"))
+    if published:
+        # Published destination explicitly continuing beyond this station
+        # overrides an incomplete/truncated station-board route list.
+        return "published_destination" if norm(published) == norm(station) else None
     route = _stop_names(arrival.get("route"))
     if route and norm(route[-1]) == norm(station):
         return "last_route_stop"
