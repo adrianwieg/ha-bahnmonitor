@@ -9,6 +9,7 @@ content: |-
   {% set info = state_attr(route, 'direction_labels') or {} %}
   {% set timetable = state_attr(route, 'timetable') or {} %}
   {% set rows = timetable.get('departures', []) %}
+  {% set arrivals = timetable.get('arrivals', []) %}
   {% set turns = state_attr(route, 'turnaround') or {} %}
   {% set incidents = state_attr(route, 'incidents') or [] %}
   {% set source = state_attr(route, 'alert_source_status') or 'not_checked' %}
@@ -33,6 +34,18 @@ content: |-
   {% else %}
   Keine passenden Fahrten in der **aktuell verfügbaren** Stationstafel.
   Das bedeutet nicht automatisch einen Zugausfall.
+  {% endif %}
+
+  ### 🚉 Ankünfte auf der überwachten Strecke
+
+  {% if arrivals %}
+  | Sollankunft | Linie | Richtung | Status | Meldung |
+  | :-- | :-- | :-- | :-- | :-- |
+  {% for item in arrivals[:15] %}
+  | {{ as_timestamp(item.planned_arrival) | timestamp_custom('%H:%M') }} | {{ item.line }} | {{ '→' if item.direction == 'same' else '←' }} | {% if item.cancelled %}**Ausfall**{% elif item.delay_minutes is number and item.delay_minutes > 0 %}+{{ item.delay_minutes }} min{% elif item.delay_minutes == 0 %}Pünktlich{% else %}Sollfahrplan{% endif %} | {{ (item.delay_reason or 'Keine Ursache übermittelt') | replace('|', '/') }} |
+  {% endfor %}
+  {% else %}
+  Keine eindeutig dieser Strecke zuzuordnenden Ankünfte in der aktuellen Stationstafel.
   {% endif %}
 
   ### 🚧 Verkehrsmeldungen & Schienenersatzverkehr
