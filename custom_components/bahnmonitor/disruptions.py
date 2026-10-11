@@ -139,30 +139,173 @@ def extract_route_alerts(
     }
 
 
+
+def _board_station_matches(row: dict, name: str) -> bool:
+    """Only connect messages to a station actually shown in the route."""
+    def normalize(value: object) -> str:
+        if isinstance(value, dict):
+            value = value.get("name")
+        if not isinstance(value, str):
+            return ""
+        clean = value.casefold().replace("ö", "oe").replace("ä", "ae").replace("ü", "ue")
+        return re.sub(r"[^a-z0-9]", "", clean)
+
+    target = normalize(name)
+    if not target:
+        return False
+    if normalize(row.get("destination")) == target:
+        return True
+    return any(
+        normalize(stop) == target
+        for stop in (row.get("route") or []) + (row.get("via") or [])
+        if isinstance(stop, (dict, str))
+    )
+
+
+def _board_line_matches(text: str, filters: tuple[str, ...]) -> bool:
+    if not filters:
+        return True
+    for item in filters:
+        match = re.fullmatch(r"([A-Z]{1,4})\s*(\d+[A-Z]?)", item.strip().upper())
+        if match:
+            product, number = match.groups()
+            if re.search(
+                rf"(?<![A-Z0-9]){re.escape(product)}\s*{re.escape(number)}(?![A-Z0-9])",
+                text.upper(),
+            ):
+                return True
+        elif item.strip().upper() == text.strip().upper():
+            return True
+    return False
+
+
+def extract_board_alerts(
+    board: list[dict],
+    *,
+    direction: str,
+    origin: str,
+    destination: str,
+    lines: tuple[str, ...] = (),
+) -> list[dict]:
+    """Use only *explicit*, route-linked IRIS notices, not empty train boards.
+
+    An ordinary bus, a message for a different destination, or the absence of
+    running trains is NOT evidence of a replacement bus. A bus explicitly
+    named 'Bus SEV' or a route train's published SEV remark is evidence.
+    """
+    events: dict[tuple[str, str, str], dict] = {}
+    for row in board:
+        if not isinstance(row, dict) or not _board_station_matches(row, destination):
+            continue
+        train = _clean(row.get("train"))
+        line = _clean(row.get("line")) or train
+        messages = row.get("messages")
+        texts: list[str] = []
+        if isinstance(messages, dict):
+            for category in ("delay", "info", "qos"):
+                texts.extend(_remarks(messages.get(category)))
+        texts.extend(_remarks(row.get("remarks")))
+        # A replacement bus might have no passenger-facing RE1 identifier:
+        # with a selected line, do not attribute it to that line unproven.
+        text_line = " ".join((train, line, *texts))
+        if not _board_line_matches(text_line, lines):
+            continue
+        evidence: list[tuple[str, str]] = []
+        if classify(train) == "sev" or classify(line) == "sev":
+            evidence.append(("sev", f"Schienenersatzverkehr als Fahrt ausgewiesen ({train or line})"))
+        for message in texts:
+            kind = classify(message)
+            if kind:
+                evidence.append((kind, message))
+        if row.get("isCancelled") is True:
+            evidence.append(("cancellation", f"Zugausfall auf {origin} → {destination} gemeldet ({train})"))
+        for kind, text in evidence:
+            key = (direction, kind, text.casefold())
+            events[key] = {
+                "type": kind,
+                "text": text,
+                "direction": direction,
+                "route": f"{origin} → {destination}",
+                "line": line or None,
+                "from": origin,
+                "to": destination,
+                "source": "DBF/IRIS-TTS",
+            }
+    return sorted(events.values(), key=lambda item: (
+        _RANK.get(item["type"], 99), item["direction"], item["text"],
+    ))[:20]
+
+
 def merge_route_alerts(route: dict, report: dict) -> dict:
-    """Make published incidents prominent without manufacturing an all-clear."""
+    """Combine independently observed IRIS notices with connection warnings.
+
+    A confirmed event remains visible even when the connection API is down.
+    A missing event with an unavailable provider is NEVER a negative result.
+    """
     merged = dict(route)
-    incidents = report.get("incidents") or []
     source = report.get("source_status", "not_checked")
+    connection_events = report.get("incidents") or []
+    board_events = route.get("board_incidents") or []
+    events: dict[tuple[str, str, str, str], dict] = {}
+    for incident in [*connection_events, *board_events]:
+        if not isinstance(incident, dict):
+            continue
+        events[(
+            str(incident.get("direction")),
+            str(incident.get("type")),
+            str(incident.get("source")),
+            str(incident.get("text")).casefold(),
+        )] = incident
+    incidents = sorted(events.values(), key=lambda incident: (
+        _RANK.get(incident.get("type"), 99),
+        str(incident.get("direction")), str(incident.get("text")),
+    ))[:20]
+
     merged.update(
         incidents=incidents,
-        sev_reported=bool(report.get("sev_reported")),
-        alert_source_status=source,
+        sev_reported=any(item.get("type") == "sev" for item in incidents),
+        alert_source_status=source,  # The journey API status is not hidden.
         alert_checked_at=report.get("checked_at"),
         alert_journey_count=report.get("journey_count", 0),
         alert_source_errors=report.get("errors", []),
-        alert_scope="Aktuell abgefragte Verbindungen; kein vollständiges Baustellenregister",
+        alert_board_count=len(board_events),
+        alert_sources={
+            "connections": source,
+            "station_boards": route.get("source_status", "not_checked"),
+        },
+        alert_scope=(
+            "Aktuelle Verbindungen und ausdrücklich veröffentlichte IRIS-Meldungen; "
+            "kein vollständiges Baustellenregister"
+        ),
     )
-    if source not in ("online", "partial") or not incidents:
-        if not incidents and source in ("online", "partial"):
+    if not incidents:
+        if source != "online":
             merged["alert_note"] = (
-                "In den abgefragten Verbindungen keine ausdrückliche Störungsmeldung; "
+                "Verbindungsdienst nicht vollständig erreichbar. "
+                "Keine bestätigte Entwarnung; SEV und Ausfälle können fehlen."
+            )
+            if merged.get("status_code") in ("no_data", "limited"):
+                merged["status_code"] = "partial_source_unavailable"
+                merged["status"] = "Daten unvollständig"
+                merged["summary"] = (
+                    "Stationstafeln liefern derzeit keine ausreichenden "
+                    "Streckeninformationen und der Verbindungsdienst ist "
+                    "nicht vollständig erreichbar."
+                )
+        else:
+            merged["alert_note"] = (
+                "In den abgefragten Verbindungen und passenden Stationstafeln "
+                "keine ausdrückliche Störungsmeldung gefunden; "
                 "dies ist keine Bestätigung einer störungsfreien Strecke."
             )
-        elif source not in ("online", "partial"):
-            merged["alert_note"] = "Verkehrsmeldungen nicht aktuell verfügbar; keine Entwarnung."
         return merged
 
+    if source not in ("online",):
+        merged["alert_note"] = (
+            "Bestätigte Einzelmeldungen aus den verfügbaren Quellen; "
+            "der Verbindungsdienst ist nicht vollständig erreichbar. "
+            "Weitere Störungen können fehlen."
+        )
     priority = incidents[0]["type"]
     labels = {
         "sev": ("sev", "Schienenersatzverkehr gemeldet"),
@@ -173,8 +316,6 @@ def merge_route_alerts(route: dict, report: dict) -> dict:
         "delay": ("elevated", "Verspätungen gemeldet"),
     }
     code, label = labels[priority]
-    # Cancellation and delay findings from IRIS can still be more severe than
-    # generic construction/route notes. SEV and closures take precedence.
     if priority in ("sev", "closure") or merged.get("status_code") not in ("high",):
         merged["status_code"] = code
         merged["status"] = label
@@ -183,8 +324,8 @@ def merge_route_alerts(route: dict, report: dict) -> dict:
         [merged["reason"]] if merged.get("reason") and merged.get("sample_count") else []
     ))[:1600]
     merged["summary"] = (
-        f"{len(incidents)} konkrete Verkehrsmeldung(en) in aktuell "
-        f"abgefragten Verbindungen. " + merged.get("summary", "")
+        f"{len(incidents)} ausdrücklich veröffentlichte Verkehrsmeldung(en) "
+        f"aus verfügbaren Quellen. " + merged.get("summary", "")
     )
     merged["trigger_reasons"] = texts + (merged.get("trigger_reasons") or [])
     return merged
