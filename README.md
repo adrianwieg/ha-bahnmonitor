@@ -25,6 +25,34 @@ Alternativ kann eine bekannte, gültige **numerische EVA-ID** direkt in das
 Bahnhofsfeld eingetragen werden. Sie benötigt bei der Einrichtung keine
 Online-Bahnhofssuche.
 
+## v0.4.2: Verkehrsmeldungen bei Ausfall des Verbindungsdienstes
+
+Der Streckenmonitor behandelt den öffentlichen Verbindungsdienst und die
+IRIS-Stationstafeln als **zwei getrennte Quellen**. Falls die Verbindungsabfrage
+mit HTTP 503/429 fehlschlägt, können trotzdem solche Störungen angezeigt
+werden, die als **explizite Meldung** für passende Fahrten in den erreichbaren
+IRIS-Stationstafeln stehen. Insbesondere als `Bus SEV` gekennzeichnete Fahrten
+oder ausdrücklich veröffentlichte Schienenersatzverkehr-Hinweise werden dabei
+als SEV erkannt; gewöhnliche Busverbindungen hingegen **nicht**.
+
+In `Streckenlage` stehen die zugeordneten Hinweise in `incidents` mit
+`source=DBF/IRIS-TTS` bzw. `db.transport.rest`. Die tatsächliche
+Quellenabdeckung bleibt über `alert_sources`, `alert_source_errors`,
+`board_counts` und `alert_journey_count` sichtbar. Wenn der
+Verbindungsdienst ausfällt und keine passende IRIS-Meldung vorliegt, lautet
+die Lage **Daten unvollständig**, nicht „Keine Störungen“.
+
+Die neue Meldungsauswertung erfindet **keinen** Ersatzverkehr. Wenn kein
+Zug und keine SEV-Meldung in den Stationstafeln erscheinen und die
+Verbindungssuche ausfällt, ist ein SEV weiterhin **nicht nachweisbar**.
+Bei 0 zur Linie/Strecke passenden Ankünften und Abfahrten zeigt auch die
+Wendeprüfung jetzt `insufficient_data` statt einer vermeintlichen
+Bestätigung, dass es keine Wende gibt.
+
+Der Diagnoseexport verwendet ab dieser Version dieselbe Versionsangabe wie
+das Integrationsmanifest. In v0.4.1 stand intern noch irrtümlich `0.3.5`,
+obwohl v0.4.1 installiert war.
+
 ## Streckenüberwachung – jetzt der Standard
 
 Neue Monitor-Einträge benötigen nur **Name, Startbahnhof und Zielbahnhof**. Eine **Linie ist optional** (z. B. `RE 1` oder `RE 1, RE 11`). Keine feste Abfahrt, Wochentage oder manuelle Wendebahnhof-Wahl für den Streckenmodus erforderlich. Frühere Einzelzug-Konfigurationen bleiben aus Kompatibilitätsgründen editierbar.
