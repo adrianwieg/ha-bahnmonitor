@@ -86,3 +86,13 @@ def test_numeric_eva_needs_no_provider():
         raise AssertionError("numeric EVA ID should not query provider")
 
     assert resolve(fake, "8010101") == ("8010101", "8010101")
+
+
+def test_valid_small_station_is_deferred_when_only_static_index_responds():
+    async def fake(path, params):
+        if path == "/stations":
+            return {}
+        raise api_module.BahnApiError("live locations HTTP 503")
+
+    with pytest.raises(api_module.BahnApiError, match="teilweise/nicht"):
+        resolve(fake, "Dorfstation")
