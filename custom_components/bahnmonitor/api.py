@@ -124,11 +124,16 @@ class BahnApi:
             selected = select_station(result, station)
             if selected is not None:
                 return selected
-        if not available:
+        # A static directory can be online while the live stop search is
+        # offline. Some valid smaller stations exist only in the latter;
+        # therefore a partial outage is *not* proof of an invalid station.
+        if errors:
             raise BahnApiError(
-                "Bahnhofssuche derzeit nicht erreichbar ("
-                + "; ".join(errors) + ")"
+                "Bahnhofssuche teilweise/nicht erreichbar, keine eindeutige "
+                "Zuordnung möglich (" + "; ".join(errors) + ")"
             )
+        if not available:
+            raise BahnApiError("Bahnhofssuche hat keine gültige Antwort geliefert")
         raise StationNotFound(
             f"Kein eindeutig passender Bahnhof für '{station}'. "
             "Bitte vollständigen Bahnhofsnamen oder EVA-ID verwenden."
