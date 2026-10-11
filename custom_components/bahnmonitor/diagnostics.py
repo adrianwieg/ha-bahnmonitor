@@ -8,6 +8,8 @@ from __future__ import annotations
 from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
 
+from .const import INTEGRATION_VERSION
+
 
 async def async_get_config_entry_diagnostics(
     hass: HomeAssistant, entry: ConfigEntry
@@ -16,7 +18,7 @@ async def async_get_config_entry_diagnostics(
     coord = entry.runtime_data
     data = coord.data or {}
     return {
-        "version": "0.3.5",
+        "version": INTEGRATION_VERSION,
         "entry_title": entry.title,
         "configured_route": {
             "origin": coord.settings.get("origin"),
