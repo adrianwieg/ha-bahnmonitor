@@ -3,25 +3,26 @@
   "config": {
     "step": {
       "user": {
-        "title": "Zugverbindung hinzufügen",
-        "description": "Lege eine tägliche Fahrt an. Wochentage: 0=Montag bis 6=Sonntag, z. B. 0,1,2,3,4. Abfahrt als HH:MM.",
+        "title": "Bahnmonitor hinzufügen",
+        "description": "Streckenmodus: Zwei Bahnhöfe wählen; feste Abfahrtszeit ist nicht erforderlich. Verkehrsmeldungen einschließlich SEV werden für aktuelle Verbindungen gesucht. Einzelzugmodus: Zusätzlich Linie, Uhrzeit und Tage festlegen.",
         "data": {
-          "name": "Name der Verbindung",
+          "name": "Name des Monitors",
           "origin": "Startbahnhof",
           "destination": "Zielbahnhof",
-          "line": "Linie (z. B. RE 1)",
-          "departure_time": "Geplante Abfahrt (HH:MM)",
-          "weekdays": "Wochentage (0–6, kommagetrennt)",
-          "window": "Abfahrts-Suchfenster (Minuten)",
-          "min_turn_minutes": "Geschätzter Mindest-Wendepuffer (Minuten)",
-          "max_turn_minutes": "Zeitraum für mögliche ankommende Züge (Minuten)",
-          "history_enabled": "Streckenlage: Frühere RE 1/RE 11 beider Richtungen auswerten",
-          "turnaround_at": "Wendebahnhof (Auswahl für diese Verbindung)"
+          "line": "Linie(n) – optional für Streckenmodus (z. B. RE 1, RE 11)",
+          "departure_time": "Nur für Einzelzug: Sollabfahrt (HH:MM)",
+          "weekdays": "Nur für Einzelzug: Wochentage (0–6)",
+          "window": "Nur für Einzelzug: Suchfenster (Minuten)",
+          "min_turn_minutes": "Nur für Einzelzug: Mindest-Wendepuffer",
+          "max_turn_minutes": "Nur für Einzelzug: Zeitfenster der Vorleistung",
+          "history_enabled": "Zusätzliche Zugbeobachtungen aus IRIS-Stationstafeln",
+          "turnaround_at": "Nur für Einzelzug: Wendebahnhof",
+          "monitor_mode": "Was möchtest du überwachen?"
         }
       }
     },
     "error": {
-      "invalid_settings": "Einstellungen ungültig: HH:MM, Wochentage und unterschiedliche Bahnhöfe prüfen",
+      "invalid_settings": "Einstellungen ungültig: unterschiedliche Bahnhöfe und bei Einzelzug Linie, HH:MM und Wochentage prüfen.",
       "connection_error": "Fahrplandienst bei der Bahnhofssuche nicht erreichbar. Details im Home-Assistant-Protokoll.",
       "station_not_found": "Bahnhof nicht gefunden. Bitte Bahnhofsnamen prüfen."
     }
@@ -29,24 +30,26 @@
   "options": {
     "step": {
       "init": {
-        "title": "Zugverbindung bearbeiten",
+        "title": "Bahnmonitor bearbeiten",
         "data": {
-          "name": "Name der Verbindung",
+          "name": "Name des Monitors",
           "origin": "Startbahnhof",
           "destination": "Zielbahnhof",
-          "line": "Linie",
-          "departure_time": "Geplante Abfahrt (HH:MM)",
-          "weekdays": "Wochentage (0–6)",
-          "window": "Abfahrts-Suchfenster (Minuten)",
-          "min_turn_minutes": "Geschätzter Mindest-Wendepuffer (Minuten)",
-          "max_turn_minutes": "Zeitraum für mögliche ankommende Züge (Minuten)",
-          "history_enabled": "Streckenlage aktivieren",
-          "turnaround_at": "Wendebahnhof (Start, Ziel oder keiner)"
-        }
+          "line": "Linie(n) – optional für Streckenmodus (z. B. RE 1, RE 11)",
+          "departure_time": "Nur für Einzelzug: Sollabfahrt (HH:MM)",
+          "weekdays": "Nur für Einzelzug: Wochentage (0–6)",
+          "window": "Nur für Einzelzug: Suchfenster (Minuten)",
+          "min_turn_minutes": "Nur für Einzelzug: Mindest-Wendepuffer",
+          "max_turn_minutes": "Nur für Einzelzug: Zeitfenster der Vorleistung",
+          "history_enabled": "Zusätzliche Zugbeobachtungen aus IRIS-Stationstafeln",
+          "turnaround_at": "Nur für Einzelzug: Wendebahnhof",
+          "monitor_mode": "Was möchtest du überwachen?"
+        },
+        "description": "Streckenmodus: Zwei Bahnhöfe wählen; feste Abfahrtszeit ist nicht erforderlich. Verkehrsmeldungen einschließlich SEV werden für aktuelle Verbindungen gesucht. Einzelzugmodus: Zusätzlich Linie, Uhrzeit und Tage festlegen."
       }
     },
     "error": {
-      "invalid_settings": "Einstellungen ungültig",
+      "invalid_settings": "Einstellungen ungültig: unterschiedliche Bahnhöfe und bei Einzelzug Linie, HH:MM und Wochentage prüfen.",
       "connection_error": "Fahrplandienst bei der Bahnhofssuche nicht erreichbar. Details im Home-Assistant-Protokoll.",
       "station_not_found": "Bahnhof nicht gefunden. Bitte Bahnhofsnamen prüfen."
     }
@@ -55,6 +58,12 @@
     "sensor": {
       "next_journey": {
         "name": "Nächste Fahrt"
+      },
+      "route_health": {
+        "name": "Streckenlage"
+      },
+      "provider_status": {
+        "name": "Fahrplandienst"
       }
     }
   }
