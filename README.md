@@ -4,28 +4,33 @@ Generische Home-Assistant-Integration für **Streckenmeldungen** und optional **
 
 **Entwicklungsstand:** Die neue Streckenüberwachung benötigt einen Praxistest mit Home Assistant und tatsächlich veröffentlichten SEV-Meldungen. Die Datenquellen sind keine amtlich vollständige Baustellen- oder Sperrungsdatenbank.
 
-## Neu: Streckenmodus, Schienenersatzverkehr und Verkehrsmeldungen
+## Streckenüberwachung – jetzt der Standard
 
-Beim Hinzufügen gibt es zwei Betriebsarten:
+Neue Monitor-Einträge benötigen nur **Name, Startbahnhof und Zielbahnhof**. Eine **Linie ist optional** (z. B. `RE 1` oder `RE 1, RE 11`). Keine feste Abfahrt, Wochentage oder manuelle Wendebahnhof-Wahl für den Streckenmodus erforderlich. Frühere Einzelzug-Konfigurationen bleiben aus Kompatibilitätsgründen editierbar.
 
-1. **Strecke überwachen (neu, Standard):** Start und Ziel eingeben, optional eine oder mehrere Linien (z. B. `RE 1, RE 11`) als Filter für die zusätzlich gesammelten IRIS-Zugbeobachtungen. Keine feste Uhrzeit oder Wochentage nötig.
-2. **Wiederkehrende Zugfahrt (kompatibel zu älteren Einträgen):** Zusätzlich Linie, HH:MM, Tage und optional die bisherige Vorleistungsprüfung festlegen. Bereits angelegte Einträge bleiben zunächst in dieser Betriebsart.
+### Was wird erfasst?
 
-Für die Verkehrsmeldungen fragt die Integration in beide Richtungen jeweils einige aktuelle Verbindungen über `v6.db.transport.rest/journeys` ab (`routingMode=HYBRID`, Hinweise aktiviert, Busse eingeschlossen). Explizite Hinweise in Verbindungsabschnitten werden nach **SEV, Streckensperrung, Ausfall, Bauarbeiten, Umleitung und Verspätung** klassifiziert. Ein ausdrücklich als Ersatzverkehr gekennzeichneter Bus wird erkannt. **Ein gewöhnlicher Bus im Reiseweg ist dagegen kein Beleg für SEV.**
+- **Aktuelle Züge in beide Richtungen**, auch solche ohne Verspätung: geplante und prognostizierte Abfahrt, Abweichung, Zugausfall, Linie, Gleis und ausdrücklich veröffentlichte Verspätungsursachen. Der Echtzeit-Zeithorizont ist durch die veröffentlichten IRIS-Stationstafeln begrenzt.
+- **Verkehrsmeldungen und SEV** aus aktuell abgefragten öffentlichen Verbindungen über `v6.db.transport.rest/journeys` (`routingMode=HYBRID`, Busabschnitte eingeschlossen): Baustellen, Sperrungen, Umleitungen, Ausfälle und ausdrücklich als Ersatzverkehr gekennzeichnete Busse. Ein regulärer Bus ist kein Nachweis für SEV.
+- **Automatische Zugwenden**: Ankunfts- und Abfahrtstafeln beider Streckenenden werden nach Endbahnhof, übereinstimmender Linie und zeitlich passender Rückfahrt durchsucht. Für plausible Fälle berechnet die Integration, ob eine verspätete Ankunft rechnerisch eine Folgeverspätung begünstigen könnte. **Es handelt sich nie um eine bestätigte Fahrzeugumlaufzuordnung.** Bei mehreren möglichen Zügen lautet der Status `ambiguous`.
 
-Die Abfrage erfolgt höchstens alle **30 Minuten pro Integrationseintrag** und nutzt den Zwischenspeicher, damit öffentliche Dienste nicht übermäßig belastet werden. Die bestehende IRIS-Zughistorie wird unabhängig davon erhoben, falls aktiviert.
+Beispiel Leinefelde → Göttingen: RE 1 soll **15:51** in Göttingen enden, wird **16:08** erwartet; die Rückfahrt Göttingen → Leinefelde soll **16:09** abfahren. Bei angenommenem Mindest-Wendepuffer von 10 Minuten bleibt rechnerisch eine Minute für die Wende und eine **mögliche** Folgeverspätung von neun Minuten – ausschließlich *falls dieselbe Garnitur* zurückfährt. Die gemeldete Abfahrtsprognose bleibt unverändert.
 
-In Home Assistant gibt es:
+### Home-Assistant-Entitäten
 
-- Sensor **Streckenlage**: Status `Schienenersatzverkehr gemeldet` bei bestätigtem Hinweis; Attribute `incidents`, `sev_reported`, `alert_checked_at`, `alert_source_status`, `alert_journey_count`, `alert_note`.
-- Binärsensor **Schienenersatzverkehr** sowie **Störungsmeldung**. Bei lückenhafter Quelle, fehlenden Verbindungen oder Teilabdeckung sind diese **unverfügbar**, statt fälschlich auf `off` zu gehen.
-- Sensor **Fahrplandienst** für die Verfügbarkeit; bei Einzelzug-Konfiguration bleiben **Nächste Fahrt**, **Zugausfall** und **Mögliche Folgeverspätung** erhalten.
+Die Integration erzeugt für eine Strecke:
+- Sensoren **Streckenlage**, **Nächste Abfahrt**, **Nächste Rückfahrt**, **Zugwenden**, **Verkehrsmeldungen** und **Fahrplandienst**.
+- Binärsensoren **Schienenersatzverkehr**, **Störungsmeldung**, **Zugausfälle** und **Mögliche Folgeverspätungen**. Wenn erforderliche Fahrplandaten fehlen, bleibt die Bewertung unbekannt/unverfügbar anstatt fälschlich grün.
 
-**Wichtig:** Eine fehlende Verkehrsmeldung ist **keine Entwarnung**. Die API gibt nur Hinweise zu den gefundenen Verbindungen und keine garantierte vollständige Liste aller Baustellen zurück. Bei einem Provider-Ausfall wird ein zuvor erkannter SEV nicht als aktuell bestätigt weiter angezeigt; ein Zeitstempel und die Quellenlage bleiben separat sichtbar. Für einen konkreten SEV auf einer Strecke muss der Anbieter entsprechende Hinweise oder gekennzeichnete Ersatzbusse zurückliefern.
+Wichtige Attribute des Sensors `Streckenlage`: `timetable.departures`, `turnaround.candidates`, `incidents`, `alert_source_status`, `sev_reported`, `direction_labels` sowie `same_direction` und `reverse_direction`.
 
-Eine neutrale Beispielkarte ohne fest hinterlegte Bahnhöfe findest du unter [`examples/route_monitor_card.yaml`](examples/route_monitor_card.yaml).
+Neue Echtzeit-Informationen werden alle zehn Minuten angefordert; Verbindungsmeldungen werden bis zu 30 Minuten zwischengespeichert. Mehrere Einträge teilen sich den Cache der Stationstafeln, um öffentliche Dienste zu schonen.
 
-**Quelle:** [db.transport.rest API-Dokumentation](https://v6.db.transport.rest/api.html).
+**Grenzen:** Die Datensätze enthalten keine vollständige tagelange Rückschau, keine sichere physische Zugumlauf-ID und kein vollständiges Baustellenregister. Bei fehlenden Meldungen ist die Strecke **nicht** automatisch störungsfrei. Die konkrete SEV-Erkennung muss anhand realer veröffentlichter Meldungen getestet werden. Ein optionaler Linienfilter begrenzt zunächst die IRIS-Zugbeobachtungen; veröffentlichte Verbindungsstörungen können die ganze Relation betreffen, ohne ihre einzelne Linie zu belegen.
+
+Beispiel für eine vollständige Lovelace-Karte: [`examples/route_monitor_card.yaml`](examples/route_monitor_card.yaml).
+
+**Öffentliche Schnittstelle:** [db.transport.rest](https://v6.db.transport.rest/api.html).
 
 ## Veröffentlichte Verspätungsgründe für RE 1/RE 11 (v0.3.5)
 
