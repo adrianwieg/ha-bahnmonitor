@@ -1,4 +1,4 @@
-"""GUI to configure one recurring monitored train per entry."""
+"""GUI to configure a general route monitor or a recurring train."""
 from __future__ import annotations
 
 from datetime import time
@@ -32,11 +32,15 @@ def default_turnaround_at(data: dict) -> str:
 def schema(defaults: dict | None = None) -> vol.Schema:
     x = defaults or {}
     return vol.Schema({
-        vol.Required("name", default=x.get("name", "Pendlerzug")): str,
+        vol.Required("name", default=x.get("name", "Bahnmonitor")): str,
+        vol.Required("monitor_mode", default=x.get("monitor_mode", "train" if x.get("departure_time") else "route")): vol.In({
+            "route": "Strecke überwachen (ohne feste Abfahrtszeit)",
+            "train": "Wiederkehrende Zugfahrt überwachen",
+        }),
         vol.Required("origin", default=x.get("origin", DEFAULT_ORIGIN)): str,
         vol.Required("destination", default=x.get("destination", DEFAULT_DESTINATION)): str,
-        vol.Required("line", default=x.get("line", DEFAULT_LINE)): str,
-        vol.Required("departure_time", default=x.get("departure_time", DEFAULT_TIME)): str,
+        vol.Optional("line", default=x.get("line", DEFAULT_LINE)): str,
+        vol.Optional("departure_time", default=x.get("departure_time", DEFAULT_TIME)): str,
         vol.Required("weekdays", default=x.get("weekdays", DEFAULT_DAYS)): str,
         vol.Required("window", default=x.get("window", DEFAULT_WINDOW)): vol.All(vol.Coerce(int), vol.Range(min=5, max=90)),
         vol.Required("history_enabled", default=x.get("history_enabled", True)): bool,
@@ -51,19 +55,26 @@ def schema(defaults: dict | None = None) -> vol.Schema:
 
 
 def valid_config(data: dict) -> bool:
+    """Station-to-station setup never requires a scheduled individual train."""
     try:
+        origin, destination = data["origin"].strip(), data["destination"].strip()
+        mode = data.get("monitor_mode", "train")
+        if (not origin or not destination or origin.casefold() == destination.casefold()
+                or mode not in ("route", "train")):
+            return False
+        if mode == "route":
+            return True
+        if not data.get("line", "").strip():
+            return False
         time.fromisoformat(data["departure_time"])
         days = [int(d.strip()) for d in data["weekdays"].split(",")]
         return (
             bool(days)
             and all(0 <= d <= 6 for d in days)
-            and data["origin"].strip().casefold()
-                != data["destination"].strip().casefold()
             and data.get("turnaround_at", "off") in ("off", "origin", "destination")
         )
-    except (ValueError, KeyError):
+    except (ValueError, KeyError, TypeError):
         return False
-
 
 class BahnmonitorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 1
