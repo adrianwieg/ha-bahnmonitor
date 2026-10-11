@@ -11,6 +11,10 @@ async def async_setup_entry(hass, entry, async_add_entities):
     coordinator = entry.runtime_data
     entities = [
         BahnRouteHealthSensor(coordinator, entry),
+        BahnRouteDepartureSensor(coordinator, entry, "same"),
+        BahnRouteDepartureSensor(coordinator, entry, "reverse"),
+        BahnTurnaroundSensor(coordinator, entry),
+        BahnRouteMessagesSensor(coordinator, entry),
         BahnProviderSensor(coordinator, entry),
     ]
     if coordinator.settings.get("monitor_mode", "train") != "route":
@@ -175,4 +179,101 @@ class BahnProviderSensor(BahnEntity):
             "last_successful_update": data.get("last_successful_update"),
             "checked_at": data.get("checked_at"),
             "diagnostics": data.get("diagnostics", {}),
+        }
+
+
+class BahnRouteDepartureSensor(BahnEntity):
+    """The nearest observed departure for either direction of the route."""
+
+    _attr_icon = "mdi:train"
+
+    def __init__(self, coordinator, entry, direction: str):
+        super().__init__(coordinator, entry)
+        self.direction = direction
+        self._attr_name = "Nächste Abfahrt" if direction == "same" else "Nächste Rückfahrt"
+        self._attr_unique_id = f"{entry.entry_id}_route_departure_{direction}"
+
+    @property
+    def native_value(self):
+        report = (self.coordinator.data or {}).get("route_health", {}).get("timetable") or {}
+        key = "next_departure" if self.direction == "same" else "next_reverse_departure"
+        row = report.get(key)
+        if row:
+            from .presentation import hhmm
+            stamp = hhmm(row.get("predicted_departure") or row["planned_departure"])
+            delay = row.get("delay_minutes")
+            suffix = f" (+{delay} Min)" if isinstance(delay, (int, float)) and delay > 0 else ""
+            return f"{row['line']} {stamp}{suffix}"
+        return "Keine aktuelle Abfahrt" if report.get("source_status") == "online" else "Daten fehlen"
+
+    @property
+    def extra_state_attributes(self):
+        route = (self.coordinator.data or {}).get("route_health") or {}
+        report = route.get("timetable") or {}
+        key = "next_departure" if self.direction == "same" else "next_reverse_departure"
+        return {
+            "direction": route.get("direction_labels", {}).get(self.direction),
+            "next_departure": report.get(key),
+            "departures": [
+                row for row in report.get("departures", [])
+                if row.get("direction") == self.direction
+            ],
+            "source_status": report.get("source_status"),
+            "scope": report.get("scope"),
+        }
+
+
+class BahnTurnaroundSensor(BahnEntity):
+    """Automatically inferred turns, not guaranteed physical vehicle matches."""
+
+    _attr_icon = "mdi:train-variant"
+    _attr_name = "Zugwenden"
+
+    def __init__(self, coordinator, entry):
+        super().__init__(coordinator, entry)
+        self._attr_unique_id = f"{entry.entry_id}_automatic_turnaround"
+
+    @property
+    def native_value(self):
+        report = (self.coordinator.data or {}).get("route_health", {}).get("turnaround") or {}
+        return {
+            "plausible": "Mögliche Zugwende erkannt",
+            "ambiguous": "Zugwende nicht eindeutig",
+            "not_found": "Keine Zugwende erkannt",
+            "source_unavailable": "Datenquelle gestört",
+        }.get(report.get("status"), "Noch nicht geprüft")
+
+    @property
+    def extra_state_attributes(self):
+        return dict((self.coordinator.data or {}).get("route_health", {}).get("turnaround") or {})
+
+
+class BahnRouteMessagesSensor(BahnEntity):
+    """Visible route notices including SEV and partial-source diagnostics."""
+
+    _attr_icon = "mdi:alert-circle-outline"
+    _attr_name = "Verkehrsmeldungen"
+
+    def __init__(self, coordinator, entry):
+        super().__init__(coordinator, entry)
+        self._attr_unique_id = f"{entry.entry_id}_route_messages"
+
+    @property
+    def native_value(self):
+        route = (self.coordinator.data or {}).get("route_health") or {}
+        if route.get("alert_source_status") not in ("online", "partial"):
+            return "Datenquelle gestört"
+        count = len(route.get("incidents") or [])
+        return f"{count} Meldung(en)" if count else "Keine Meldungen übermittelt"
+
+    @property
+    def extra_state_attributes(self):
+        route = (self.coordinator.data or {}).get("route_health") or {}
+        return {
+            "incidents": route.get("incidents", []),
+            "sev_reported": route.get("sev_reported", False),
+            "source_status": route.get("alert_source_status"),
+            "last_checked": route.get("alert_checked_at"),
+            "notice": route.get("alert_note"),
+            "scope": route.get("alert_scope"),
         }
