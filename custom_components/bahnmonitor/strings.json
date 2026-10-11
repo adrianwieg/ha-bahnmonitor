@@ -4,20 +4,20 @@
     "step": {
       "user": {
         "title": "Bahnmonitor hinzufügen",
-        "description": "Streckenmodus: Zwei Bahnhöfe wählen; feste Abfahrtszeit ist nicht erforderlich. Verkehrsmeldungen einschließlich SEV werden für aktuelle Verbindungen gesucht. Einzelzugmodus: Zusätzlich Linie, Uhrzeit und Tage festlegen.",
+        "description": "Bahnverkehr zwischen zwei Bahnhöfen überwachen. Start und Ziel sind Pflicht, die Linie ist optional. Live-Abfahrten, SEV, Zugausfälle und automatische Zugwenden werden ausgewertet. Der Altmodus mit fester Uhrzeit bleibt für bestehende Konfigurationen erhalten.",
         "data": {
           "name": "Name des Monitors",
-          "origin": "Startbahnhof",
-          "destination": "Zielbahnhof",
-          "line": "Linie(n) – optional für Streckenmodus (z. B. RE 1, RE 11)",
+          "origin": "Startbahnhof der Strecke",
+          "destination": "Zielbahnhof der Strecke",
+          "line": "Linie (optional, z. B. RE 1 oder RE 1, RE 11)",
           "departure_time": "Nur für Einzelzug: Sollabfahrt (HH:MM)",
           "weekdays": "Nur für Einzelzug: Wochentage (0–6)",
           "window": "Nur für Einzelzug: Suchfenster (Minuten)",
           "min_turn_minutes": "Nur für Einzelzug: Mindest-Wendepuffer",
           "max_turn_minutes": "Nur für Einzelzug: Zeitfenster der Vorleistung",
-          "history_enabled": "Zusätzliche Zugbeobachtungen aus IRIS-Stationstafeln",
-          "turnaround_at": "Nur für Einzelzug: Wendebahnhof",
-          "monitor_mode": "Was möchtest du überwachen?"
+          "history_enabled": "Historische Zugbeobachtungen speichern",
+          "turnaround_at": "Wendeerkennung für Altmodus",
+          "monitor_mode": "Überwachungsart"
         }
       }
     },
@@ -33,19 +33,19 @@
         "title": "Bahnmonitor bearbeiten",
         "data": {
           "name": "Name des Monitors",
-          "origin": "Startbahnhof",
-          "destination": "Zielbahnhof",
-          "line": "Linie(n) – optional für Streckenmodus (z. B. RE 1, RE 11)",
+          "origin": "Startbahnhof der Strecke",
+          "destination": "Zielbahnhof der Strecke",
+          "line": "Linie (optional, z. B. RE 1 oder RE 1, RE 11)",
           "departure_time": "Nur für Einzelzug: Sollabfahrt (HH:MM)",
           "weekdays": "Nur für Einzelzug: Wochentage (0–6)",
           "window": "Nur für Einzelzug: Suchfenster (Minuten)",
           "min_turn_minutes": "Nur für Einzelzug: Mindest-Wendepuffer",
           "max_turn_minutes": "Nur für Einzelzug: Zeitfenster der Vorleistung",
-          "history_enabled": "Zusätzliche Zugbeobachtungen aus IRIS-Stationstafeln",
-          "turnaround_at": "Nur für Einzelzug: Wendebahnhof",
-          "monitor_mode": "Was möchtest du überwachen?"
+          "history_enabled": "Historische Zugbeobachtungen speichern",
+          "turnaround_at": "Wendeerkennung für Altmodus",
+          "monitor_mode": "Überwachungsart"
         },
-        "description": "Streckenmodus: Zwei Bahnhöfe wählen; feste Abfahrtszeit ist nicht erforderlich. Verkehrsmeldungen einschließlich SEV werden für aktuelle Verbindungen gesucht. Einzelzugmodus: Zusätzlich Linie, Uhrzeit und Tage festlegen."
+        "description": "Bahnverkehr zwischen zwei Bahnhöfen überwachen. Start und Ziel sind Pflicht, die Linie ist optional. Live-Abfahrten, SEV, Zugausfälle und automatische Zugwenden werden ausgewertet. Der Altmodus mit fester Uhrzeit bleibt für bestehende Konfigurationen erhalten."
       }
     },
     "error": {
@@ -64,6 +64,18 @@
       },
       "provider_status": {
         "name": "Fahrplandienst"
+      },
+      "route_departure_same": {
+        "name": "Nächste Abfahrt"
+      },
+      "route_departure_reverse": {
+        "name": "Nächste Rückfahrt"
+      },
+      "automatic_turnaround": {
+        "name": "Zugwenden"
+      },
+      "route_messages": {
+        "name": "Verkehrsmeldungen"
       }
     }
   }
