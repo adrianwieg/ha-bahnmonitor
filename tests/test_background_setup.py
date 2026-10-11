@@ -77,7 +77,7 @@ def test_initial_setup_registers_entities_before_slow_network(monkeypatch):
             observation_key=lambda item: item["train"])
 
     spec = importlib.util.spec_from_file_location(
-        f"{pkg}.integration", ROOT / "__init__.py",
+        pkg, ROOT / "__init__.py",
     )
     integration = importlib.util.module_from_spec(spec)
     monkeypatch.setitem(sys.modules, spec.name, integration)
