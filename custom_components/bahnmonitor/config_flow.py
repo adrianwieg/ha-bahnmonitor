@@ -36,6 +36,7 @@ def schema(defaults: dict | None = None) -> vol.Schema:
         vol.Optional("line", default=x.get("line", DEFAULT_LINE)): str,
         vol.Optional("bus_origin_stop", default=x.get("bus_origin_stop", "")): str,
         vol.Optional("bus_destination_stop", default=x.get("bus_destination_stop", "")): str,
+        vol.Optional("transitous_approved", default=x.get("transitous_approved", False)): bool,
     }
     if mode == "train":
         fields.update({
