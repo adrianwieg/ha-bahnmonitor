@@ -25,6 +25,36 @@ Alternativ kann eine bekannte, gültige **numerische EVA-ID** direkt in das
 Bahnhofsfeld eingetragen werden. Sie benötigt bei der Einrichtung keine
 Online-Bahnhofssuche.
 
+## v0.4.7: Automatische Zusammenfassung eines Bahnhofskomplexes
+
+Für die Konfiguration genügt jetzt auch bei Schienenersatzverkehr eine
+normale Strecke, beispielsweise **Leinefelde → Göttingen**. Die Integration
+versucht selbstständig, den passend benannten **Bahnhof/ZOB- oder
+Busbahnhof-Halt** jeder Station zu finden, ohne eine zusätzliche
+Bus-Haltestellen-Konfiguration vorauszusetzen. Rail-EVA-IDs und
+Bus-Haltestellen-IDs werden bei der **Datenabfrage** getrennt gehalten,
+in der Streckenüberwachung aber derselben Station zugeordnet.
+
+Die optionale Linienauswahl gilt weiterhin für die Züge. Busfahrten
+werden unabhängig von den alten RE-Abfahrtszeiten gesucht. Die
+Busverbindung wird im Sensor **Direkte Busverbindungen** angezeigt.
+
+**Ausnahme:** Wenn ein öffentlicher Suchdienst mehrere ähnlich passende
+Bus-Halte am Bahnhof liefert, wählt Bahnmonitor absichtlich nicht
+willkürlich einen aus. In diesem Fall können in den Optionen weiterhin
+zwei **manuelle Haltestellen-Overrides** angegeben werden. Die Namen
+sind sonst nicht erforderlich.
+
+Diese Änderung verwendet für die Verbindungssuche das dokumentierte
+API-Profil **dbnav** (statt dbweb). Der Benutzer gibt weiterhin
+**keine** zweite Strecke an. Die Überwachung bleibt generisch und
+funktioniert nicht nur für Leinefelde/Göttingen.
+
+Der Ausfall einer öffentlichen Verbindungs-API mit HTTP 503 ist dadurch
+jedoch **nicht** behoben: Können die Bus-Haltestellen nicht aufgelöst
+oder die Verbindungen nicht abgerufen werden, ist deren Zustand
+unbekannt, nicht fälschlich störungsfrei.
+
 ## v0.4.6: Getrennte Haltestellen für Bus-Ersatzfahrten
 
 Die DB-Fahrplanauskunft kann einen **Bus RE1** als direkte Verbindung
