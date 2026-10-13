@@ -535,6 +535,7 @@ class BahnCoordinator(DataUpdateCoordinator):
                 trips.extend(collect_bus_connections(
                     data, direction=direction, origin_stop=start,
                     destination_stop=end, now=now,
+                    origin_stop_id=first, destination_stop_id=last,
                 ))
         trips = list({
             (trip["direction"], trip["name"], trip["scheduled_departure"]): trip
