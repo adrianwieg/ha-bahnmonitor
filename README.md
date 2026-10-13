@@ -25,6 +25,51 @@ Alternativ kann eine bekannte, gültige **numerische EVA-ID** direkt in das
 Bahnhofsfeld eingetragen werden. Sie benötigt bei der Einrichtung keine
 Online-Bahnhofssuche.
 
+## v0.4.6: Getrennte Haltestellen für Bus-Ersatzfahrten
+
+Die DB-Fahrplanauskunft kann einen **Bus RE1** als direkte Verbindung
+zwischen eigenständigen Bus-Haltestellen anbieten, die in den
+IRIS-Bahnhofstafeln der beiden Bahnhöfe fehlen.
+
+Als belegtes Beispiel aus dem DB Navigator am 13.10.2026:
+- 21:25 Uhr **Leinefelde Bahnhof, Leinefelde-Worbis**
+- 21:45 Uhr **Bahnhof/ZOB, Heilbad Heiligenstadt**
+- 22:30 Uhr **Bahnhof/ZOB, Göttingen** (durchgehender Bus RE1)
+
+**Einrichtung:** In den Optionen einer Streckenüberwachung gibt es jetzt
+zwei neue, optionale Felder. Trage jeweils den exakten Namen aus der
+Fahrplanauskunft ein:
+
+- Bus-Abfahrtshaltestelle: `Leinefelde Bahnhof, Leinefelde-Worbis`
+- Bus-Zielhaltestelle: `Bahnhof/ZOB, Göttingen`
+
+Im generischen Projekt sind beide Felder standardmäßig leer. Jede Strecke
+kann eigene Haltestellen haben. Eine reine Streckenüberwachung funktioniert
+weiterhin ohne diese optionalen Felder.
+
+**Ergebnis:** Die Integration löst für diese Namen eigenständige
+Bus-Haltestellen-IDs auf und fragt die Verbindungen im getrennten
+`dbweb`-Profil ab. Sie verwendet dabei nicht die Bahn-EVA-IDs. Es werden
+direkte Busfahrten einschließlich geplanter Abfahrt/Ankunft, der
+Linienbezeichnung und expliziter Störungsmeldungen gesammelt. Bei
+Abfragen ab 16:00 Uhr wird zur Abdeckung früher Fahrten des nächsten
+Tages zusätzlich das Zeitfenster ab 04:00 Uhr gesucht.
+Dafür ist **kein** Abgleich mit regulären RE-Abfahrtszeiten nötig.
+
+Neuer Sensor: **Direkte Busverbindungen** mit Attributen
+`services`, `source_status`, `errors` und `bus_stops`.
+Die Ergebnisse erscheinen auch im Diagnoseexport unter
+`source_debug.bus_connections`.
+
+**Wichtige Einschränkung:** Die zusätzliche Abfrage verwendet noch
+denselben öffentlichen Domainbetreiber `db.transport.rest` mit einem
+anderen API-Profil. Wenn der Dienst in beiden Profilen HTTP 503 meldet,
+bleiben auch die Busfahrten zunächst unbekannt. `Bus RE1` belegt
+eine Busfahrt, aber für eine automatische **SEV-Bestätigung** ist eine
+explizite Ersatzverkehrs-Meldung erforderlich. Die Daten werden
+maximal einmal pro Stunde erneut abgefragt; alle Fehler stehen in
+der Diagnose. Diese Version ersetzt keine unabhängige Datenquelle.
+
 ## v0.4.5: Zeitliche Plausibilität von Bus-Teilstrecken
 
 Ein gemeinsamer Zwischenbahnhof alleine ergibt **keine** Reiseverbindung.
