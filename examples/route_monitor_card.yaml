@@ -12,7 +12,9 @@ content: |-
   {% set arrivals = timetable.get('arrivals', []) %}
   {% set turns = state_attr(route, 'turnaround') or {} %}
   {% set incidents = state_attr(route, 'incidents') or [] %}
-  {% set corridor = state_attr(route, 'corridor') or {} %}
+  {% set direct_buses = (state_attr(route, 'bus_connections') or {}).get('services', []) %}
+  {% set bus_status = (state_attr(route, 'bus_connections') or {}).get('status', 'not_configured') %}
+  {% set corridor = state_attr(route, 'corridor') or {}
   {% set buses = corridor.get('observed_bus_sections', []) %}
   {% set source = state_attr(route, 'alert_source_status') or 'not_checked' %}
   {% set checked = state_attr(route, 'alert_checked_at') %}
@@ -59,6 +61,24 @@ content: |-
   {% else %}
   Keine konkrete Verkehrsmeldung übermittelt. **Keine Entwarnung:** Ein SEV
   kann trotzdem existieren, wenn die abgefragte Datenquelle ihn nicht liefert.
+  {% endif %}
+
+  ### 🚌 Direkte Busfahrten (eigene Bus-Haltestellen)
+
+  {% if direct_buses %}
+  | Abfahrt | Ankunft | Buslinie | Richtung |
+  | :-- | :-- | :-- | :-- |
+  {% for bus in direct_buses[:12] %}
+  | {{ as_timestamp(bus.scheduled_departure) | timestamp_custom('%d.%m. %H:%M') }} | {{ as_timestamp(bus.scheduled_arrival) | timestamp_custom('%H:%M') }} | **{{ bus.name }}**{% if bus.explicit_sev %} (SEV gemeldet){% endif %} | {{ bus.origin }} → {{ bus.destination }} |
+  {% endfor %}
+  {% else %}
+  {% if bus_status == 'not_configured' %}
+  Bitte Bus-Abfahrtshaltestelle und Bus-Zielhaltestelle in den Bahnmonitor-Optionen eintragen.
+  {% elif bus_status in ['unavailable', 'partial'] %}
+  Die Bus-Fahrplandatenquelle ist gestört oder nur teilweise erreichbar.
+  {% else %}
+  Keine passende direkte Busverbindung aus der aktuellen Abfrage nachgewiesen.
+  {% endif %}
   {% endif %}
 
   ### 🚌 Busse auf möglichen Teilstrecken
