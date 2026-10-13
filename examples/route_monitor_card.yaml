@@ -13,6 +13,8 @@ content: |-
   {% set turns = state_attr(route, 'turnaround') or {} %}
   {% set incidents = state_attr(route, 'incidents') or [] %}
   {% set direct_buses = (state_attr(route, 'bus_connections') or {}).get('services', []) %}
+  {% set transitous = state_attr(route, 'transitous') or {} %}
+  {% set alternatives = transitous.get('routes', []) %}
   {% set bus_status = (state_attr(route, 'bus_connections') or {}).get('status', 'not_configured') %}
   {% set corridor = state_attr(route, 'corridor') or {}
   {% set buses = corridor.get('observed_bus_sections', []) %}
@@ -80,6 +82,26 @@ content: |-
   Keine passende direkte Busverbindung aus der aktuellen Abfrage nachgewiesen.
   {% endif %}
   {% endif %}
+
+  ### 🔀 Alternative Verbindungen mit Bus und Bahn
+
+  {% if alternatives %}
+  {% for trip in alternatives[:8] %}
+  - **{{ as_timestamp(trip.scheduled_departure) | timestamp_custom('%d.%m. %H:%M') }}**
+    {% if trip.direct_bus %}Direktbus{% else %}{{ trip.transfers }} Umstieg(e){% endif %}:
+    {% for leg in trip.legs %}{{ leg.line }} ({{ leg.origin }} → {{ leg.destination }}){% if not loop.last %} + {% endif %}{% endfor %}
+  {% endfor %}
+  {% elif transitous.get('status') == 'approval_required' %}
+  Transitous ist noch nicht freigeschaltet. Gemäß Nutzungsrichtlinie vor
+  Routing-Abfragen erst die Betreiber kontaktieren.
+  {% elif transitous.get('status') in ['unavailable', 'partial'] %}
+  Transitous liefert aktuell keine vollständigen Verbindungsdaten.
+  {% else %}
+  Keine alternative Verbindung aus der aktuellen Abfrage bekannt.
+  {% endif %}
+
+  *Daten: [Transitous und weitere Quellen](https://transitous.org/sources/)
+  sowie OpenStreetMap-Beitragende. Keine Antwort ist keine Entwarnung.*
 
   ### 🚌 Busse auf möglichen Teilstrecken
 
