@@ -109,3 +109,78 @@ def select_public_transport_stop(results: object, query: str) -> tuple[str, str]
         ):
             matches[sid] = (sid, name)
     return next(iter(matches.values())) if len(matches) == 1 else None
+
+
+
+def station_complex_bus_stop(
+    results: object,
+    station_name: str,
+    *,
+    rail_station_id: str | None = None,
+) -> tuple[str, str] | None:
+    """Identify one unambiguous bus terminal attached to the named station.
+
+    This models station COMPLEXES, not exact string equality: the same user
+    route 'Leinefelde -> Göttingen' may use rail platforms and a Bus Bahnhof/ZOB.
+    When no *uniquely identifiable* bus stop is published, return None so the
+    coordinator reports ambiguity/unknown rather than selecting a suburb.
+    """
+    if not isinstance(results, list):
+        return None
+    # Do not assume "city" and "city Hbf" mean the same thing. Resolve
+    # canonical rail station names separately; this is for a bus terminal
+    # specifically collocated by its name with the configured rail station.
+    key = normalize_station_name(station_name)
+    if not key:
+        return None
+    # The canonical station name can have an explicit Hbf suffix.
+    key = re.sub(r"hbf$", "", key)
+    matches: dict[str, tuple[str, str]] = {}
+    for item in results:
+        if not isinstance(item, dict) or item.get("type") not in ("stop", None):
+            continue
+        sid = str(item.get("id") or "").strip()
+        name = item.get("name")
+        if not sid.isdigit() or not isinstance(name, str) or not name.strip():
+            continue
+        if rail_station_id and sid == str(rail_station_id):
+            continue
+        products = item.get("products")
+        if isinstance(products, dict) and products.get("bus") is False:
+            continue
+        # Accept explicitly station-based bus termini only. The municipality
+        # alone is never sufficient (no 'Göttingen ZOB Süd' to 'Göttingen').
+        parts = [p.strip() for p in name.split(",") if p.strip()]
+        if not parts:
+            continue
+        terminal_tokens = r"(?:bahnhof|hauptbahnhof|hbf|busbahnhof|zob|bahnhofsplatz)"
+        # Match 'Leinefelde Bahnhof, Leinefelde-Worbis' / 'Leinefelde, Bahnhof'
+        # / 'Bahnhof/ZOB, Göttingen'. Token boundary avoids 'Bad Göttingen'.
+        def is_station_terminal(fragment: str) -> bool:
+            return bool(re.search(
+                rf"(?<![a-z]){terminal_tokens}(?![a-z])", fragment.casefold()
+            ))
+
+        def name_matches(fragment: str) -> bool:
+            normalized = normalize_station_name(fragment)
+            if normalized == key:
+                return True
+            # The place name immediately followed by a station facility,
+            # not an unrelated town like 'Bad Leinefelde'.
+            for suffix in ("bahnhof", "hauptbahnhof", "hbf",
+                           "busbahnhof", "zob", "bahnhofsplatz"):
+                if normalized == key + suffix:
+                    return True
+            return False
+
+        same_site = (
+            (name_matches(parts[0]) and is_station_terminal(name))
+            or (
+                len(parts) >= 2
+                and any(name_matches(p) for p in parts[1:])
+                and is_station_terminal(parts[0])
+            )
+        )
+        if same_site:
+            matches[sid] = (sid, name.strip())
+    return next(iter(matches.values())) if len(matches) == 1 else None
