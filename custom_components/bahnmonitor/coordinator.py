@@ -473,37 +473,64 @@ class BahnCoordinator(DataUpdateCoordinator):
         }
 
     async def _bus_stop_route(self, now: datetime) -> dict:
-        """Opt-in replacement bus stop monitoring, independent of train EVA IDs."""
-        names = (
-            self.settings.get("bus_origin_stop", "").strip(),
-            self.settings.get("bus_destination_stop", "").strip(),
+        """Automatically include station-complex bus stops in a generic route.
+
+        A route is configured ONLY as station A -> station B. Optional explicit
+        bus platforms are overrides when the public stop directory is ambiguous.
+        A bus stop ID is not interchangeable with a railway EVA ID.
+        """
+        overrides = (
+            str(self.settings.get("bus_origin_stop") or "").strip(),
+            str(self.settings.get("bus_destination_stop") or "").strip(),
         )
-        if not all(names):
-            return summarise_bus(
-                [], source_status="not_configured",
-                errors=["Optional: getrennte Bus-Haltestellen unter Bahnmonitor-Optionen angeben."],
-            )
+        automatic = not any(overrides)
+        names = (
+            self.settings["origin"], self.settings["destination"]
+        ) if automatic else overrides
         if self._bus_checked_at and self._bus_cache and (
             now - self._bus_checked_at < timedelta(minutes=60)
         ):
             return self._bus_cache
 
-        resolver = getattr(self.api, "resolve_public_stop", None)
+        specific_resolver = getattr(self.api, "resolve_public_stop", None)
+        auto_resolver = getattr(self.api, "resolve_bus_stop_for_station", None)
         router = getattr(self.api, "bus_journeys", None)
-        if resolver is None or router is None:
+        if router is None or (
+            auto_resolver is None if automatic else specific_resolver is None
+        ):
             return summarise_bus(
-                [], source_status="unsupported", errors=["Bus-Endpunkte nicht unterstützt"],
+                [], source_status="unsupported",
+                errors=["Keine automatische Bus-Komplexsuche im Fahrplandienst verfügbar"],
             )
         ids = []
+        stop_names = []
         try:
-            for name in names:
-                if name not in self._bus_stop_cache:
-                    self._bus_stop_cache[name] = await resolver(name)
-                ids.append(self._bus_stop_cache[name][0])
+            for index, name in enumerate(names):
+                station_id = self.settings.get(
+                    "origin_id" if index == 0 else "destination_id"
+                )
+                key = (
+                    f"station:{station_id}:{name}" if automatic
+                    else f"manual:{name}"
+                )
+                if key not in self._bus_stop_cache:
+                    if automatic:
+                        self._bus_stop_cache[key] = await auto_resolver(
+                            name, station_id,
+                        )
+                    else:
+                        self._bus_stop_cache[key] = await specific_resolver(name)
+                found_id, found_name = self._bus_stop_cache[key]
+                ids.append(found_id)
+                stop_names.append(found_name)
         except BahnApiError as exc:
-            result = summarise_bus([], source_status="unavailable", errors=[
-                f"Bus-Haltestellensuche ({names}): {exc}",
-            ])
+            result = summarise_bus(
+                [], source_status="unavailable", errors=[
+                    f"Bus-Haltestellen für {names[0]} → {names[1]} "
+                    f"({'automatisch' if automatic else 'manuell'}): {exc}"
+                ],
+            )
+            result["resolution"] = "automatic" if automatic else "manual"
             self._bus_checked_at = now
             self._bus_cache = result
             return result
@@ -521,8 +548,8 @@ class BahnCoordinator(DataUpdateCoordinator):
             )
             windows.append(dawn)
         for direction, first, last, start, end in (
-            ("same", ids[0], ids[1], names[0], names[1]),
-            ("reverse", ids[1], ids[0], names[1], names[0]),
+            ("same", ids[0], ids[1], stop_names[0], stop_names[1]),
+            ("reverse", ids[1], ids[0], stop_names[1], stop_names[0]),
         ):
             for query_at in windows:
                 try:
@@ -548,9 +575,11 @@ class BahnCoordinator(DataUpdateCoordinator):
             ), errors=errors,
         )
         result["bus_stops"] = {
-            "origin": names[0], "destination": names[1],
+            "origin": stop_names[0], "destination": stop_names[1],
             "origin_stop_id": ids[0], "destination_stop_id": ids[1],
+            "configured_route": f"{self.settings['origin']} → {self.settings['destination']}",
         }
+        result["resolution"] = "automatic" if automatic else "manual"
         self._bus_cache = result
         self._bus_checked_at = now
         return result
@@ -582,7 +611,7 @@ class BahnCoordinator(DataUpdateCoordinator):
                     "status": route["bus_connections"]["status"],
                     "service_count": route["bus_connections"]["service_count"],
                     "errors": route["bus_connections"]["errors"],
-                    "configured": bool(self.settings.get("bus_origin_stop")),
+                    "resolution": route["bus_connections"].get("resolution", "automatic"),
                 },
                 "connection_alerts": {
                     "source_status": route.get("alert_source_status"),
