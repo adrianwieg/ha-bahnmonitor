@@ -26,6 +26,7 @@ turns = load("turnaround")
 departures = load("route_departures")
 load("disruptions")
 debugger = load("debug")
+corridor = load("corridor")
 now = datetime(2026, 10, 8, 15, 40, tzinfo=ZoneInfo("Europe/Berlin"))
 
 
@@ -238,3 +239,107 @@ def test_debug_shows_actual_planned_bus_time_from_connection():
     assert leg["is_bus"] is True
     assert leg["explicit_sev"] is True
     assert leg["planned_departure"] == "2026-10-08T12:35:00+02:00"
+
+
+
+def test_real_diagnostic_bus_re8_to_eichenberg_is_part_of_corridor():
+    """13 Oct diagnostic: Bus RE8 is visible but neither endpoint board goes A-B."""
+    report = corridor.find_partial_bus_sections(
+        now=now,
+        endpoints=[
+            {
+                "station": "Leinefelde",
+                "departures": [
+                    {
+                        "train": "Bus RE8", "scheduledDeparture": "21:20",
+                        "destination": "Eichenberg",
+                        "route": [
+                            "Leinefelde", "Beuren", "Wingerode", "Bodenrode",
+                            "Heilbad Heiligenstadt", "Uder", "Arenshausen",
+                            "Eichenberg",
+                        ],
+                    },
+                    {
+                        "train": "Bus RE9", "scheduledDeparture": "21:12",
+                        "destination": "Sangerhausen",
+                        "route": ["Leinefelde", "Nordhausen", "Sangerhausen"],
+                    },
+                ],
+                "arrivals": [],
+            },
+            {
+                "station": "Göttingen",
+                "departures": [],
+                "arrivals": [
+                    {
+                        "train": "CAN RB83", "scheduledArrival": "19:45",
+                        "destination": "Göttingen",
+                        "route": ["Eichenberg", "Friedland(Han)", "Göttingen"],
+                    },
+                    {
+                        "train": "CAN RB87", "scheduledArrival": "19:45",
+                        "destination": "Göttingen",
+                        "route": ["Eschwege", "Eichenberg", "Friedland(Han)", "Göttingen"],
+                    },
+                ],
+            },
+        ],
+    )
+    assert report["status"] == "candidates_found"
+    assert report["source_status"] == "online"
+    assert report["candidate_count"] == 1
+    first = report["candidates"][0]
+    assert first["train"] == "Bus RE8"
+    assert first["bus_start"] == "Leinefelde"
+    assert first["bus_end"] == "Eichenberg"
+    assert first["interchange"] == "Eichenberg"
+    assert first["scheduled"].endswith("21:20:00+02:00")
+    assert first["connecting_line"] in ("RB 83", "RB 87")
+    assert first["confirmed_sev"] is False
+    assert first["transfer_confirmed"] is False
+
+
+def test_corridor_candidate_not_deleted_when_optional_line_differs():
+    report = corridor.find_partial_bus_sections(
+        now=now, lines=("RE 1", "RE 11"),
+        endpoints=[
+            {
+                "station": "Leinefelde",
+                "departures": [
+                    {"train": "Bus RE8", "scheduledDeparture": "21:20",
+                     "destination": "Eichenberg",
+                     "route": ["Leinefelde", "Eichenberg"]},
+                ],
+                "arrivals": [],
+            },
+            {
+                "station": "Göttingen", "departures": [],
+                "arrivals": [
+                    {"train": "CAN RB83", "scheduledArrival": "19:45",
+                     "destination": "Göttingen",
+                     "route": ["Eichenberg", "Göttingen"]},
+                ],
+            },
+        ],
+    )
+    assert report["candidate_count"] == 1
+    assert report["candidates"][0]["line_filter_match"] is False
+    assert report["candidates"][0]["confirmed_sev"] is False
+
+
+def test_bus_not_linked_without_shared_intermediate_station():
+    report = corridor.find_partial_bus_sections(
+        now=now,
+        endpoints=[
+            {"station": "Leinefelde", "departures": [
+                {"train": "Bus RE9", "scheduledDeparture": "19:12",
+                 "route": ["Leinefelde", "Nordhausen", "Sangerhausen"]},
+            ], "arrivals": []},
+            {"station": "Göttingen", "departures": [], "arrivals": [
+                {"train": "CAN RB83", "scheduledArrival": "19:45",
+                 "route": ["Eichenberg", "Friedland(Han)", "Göttingen"]},
+            ]},
+        ],
+    )
+    assert report["status"] == "none_observed"
+    assert report["candidate_count"] == 0
