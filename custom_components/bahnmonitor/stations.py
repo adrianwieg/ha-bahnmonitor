@@ -69,3 +69,43 @@ def select_station(results: object, query: str) -> tuple[str, str] | None:
             continue
         exact[clean_id] = (clean_id, name.strip())
     return next(iter(exact.values())) if len(exact) == 1 else None
+
+
+def select_public_transport_stop(results: object, query: str) -> tuple[str, str] | None:
+    """Resolve bus stops whose DB display names may reverse locality order.
+
+    E.g. 'Bahnhof/ZOB, Göttingen' versus 'Göttingen, Bahnhof/ZOB'.
+    These name variants must not be collapsed into a nearby railway station
+    or any randomly picked autocomplete result.
+    """
+    direct = select_station(results, query)
+    if direct is not None:
+        return direct
+    if not isinstance(results, list) or "," not in query:
+        return None
+    left, right = (v.strip() for v in query.split(",", 1))
+    first, locality = normalize_station_name(left), normalize_station_name(right)
+    if not first or not locality:
+        return None
+    # For compound municipal names the stop can include the primary locality
+    # instead of the formal merged administrative name (Leinefelde-Worbis).
+    locality_head = normalize_station_name(right.split("-")[0])
+    matches = {}
+    for item in results:
+        if not isinstance(item, dict) or item.get("type") not in ("stop", None):
+            continue
+        name = item.get("name")
+        sid = str(item.get("id") or "")
+        if not isinstance(name, str) or not sid.isdigit():
+            continue
+        products = item.get("products")
+        if isinstance(products, dict) and products.get("bus") is False:
+            continue
+        actual = normalize_station_name(name)
+        if not actual:
+            continue
+        if actual == first or (
+            first in actual and (locality in actual or locality_head in actual)
+        ):
+            matches[sid] = (sid, name)
+    return next(iter(matches.values())) if len(matches) == 1 else None
