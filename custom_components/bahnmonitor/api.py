@@ -182,7 +182,7 @@ class BahnApi:
             raise BahnApiError("Invalid journey response")
         return data
 
-    async def resolve_public_stop(self, stop_name: str, *, profile: str = "dbweb") -> tuple[str, str]:
+    async def resolve_public_stop(self, stop_name: str, *, profile: str = "dbnav") -> tuple[str, str]:
         """Find an exact local bus stop, NOT a rail station ID.
 
         Example: the DB app distinguishes Leinefelde Bahnhof from its rail
@@ -208,9 +208,37 @@ class BahnApi:
             )
         return found
 
+    async def resolve_bus_stop_for_station(
+        self, station_name: str, station_id: str | None = None,
+        *, profile: str = "dbnav",
+    ) -> tuple[str, str]:
+        """Find the station complex's *bus* stop from a normal route station.
+
+        Does not require 'Bus/ZOB' text in the user's route configuration.
+        Never silently return a random nearby bus stop or the rail EVA ID.
+        """
+        from .stations import station_complex_bus_stop
+
+        data = await self._get("/locations", {
+            "query": station_name.strip(), "results": 40,
+            "stops": "true", "poi": "false", "addresses": "false",
+            "profile": profile, "language": "de", "pretty": "false",
+        })
+        if not isinstance(data, list):
+            raise BahnApiError("Bahnhofs-Komplexsuche: ungültige Antwort")
+        found = station_complex_bus_stop(
+            data, station_name, rail_station_id=station_id,
+        )
+        if found is None:
+            raise StationNotFound(
+                f"Kein eindeutiger Bus-Bahnhof/ZOB für '{station_name}'. "
+                "Optional den genauen Bus-Haltenamen in den Optionen festlegen."
+            )
+        return found
+
     async def bus_journeys(
         self, from_stop_id: str, to_stop_id: str, when: datetime,
-        *, profile: str = "dbweb",
+        *, profile: str = "dbnav",
     ) -> dict:
         """Opt-in bus-stop routing with real bus stops, not station EVA IDs."""
         data = await self._get("/journeys", {
