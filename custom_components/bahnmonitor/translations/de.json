@@ -19,7 +19,8 @@
           "turnaround_at": "Wendeerkennung für Altmodus",
           "monitor_mode": "Überwachungsart",
           "bus_origin_stop": "Nur bei Bedarf: Bus-Abfahrtshaltestelle manuell überschreiben",
-          "bus_destination_stop": "Nur bei Bedarf: Bus-Zielhaltestelle manuell überschreiben"
+          "bus_destination_stop": "Nur bei Bedarf: Bus-Zielhaltestelle manuell überschreiben",
+          "transitous_approved": "Transitous aktivieren (nur nach Betreiberfreigabe für Routing; transitous.org/api/)"
         }
       }
     },
@@ -47,7 +48,8 @@
           "turnaround_at": "Wendeerkennung für Altmodus",
           "monitor_mode": "Überwachungsart",
           "bus_origin_stop": "Nur bei Bedarf: Bus-Abfahrtshaltestelle manuell überschreiben",
-          "bus_destination_stop": "Nur bei Bedarf: Bus-Zielhaltestelle manuell überschreiben"
+          "bus_destination_stop": "Nur bei Bedarf: Bus-Zielhaltestelle manuell überschreiben",
+          "transitous_approved": "Transitous aktivieren (nur nach Betreiberfreigabe für Routing; transitous.org/api/)"
         },
         "description": "Bahnverkehr zwischen zwei Bahnhöfen überwachen. Start und Ziel sind Pflicht, die Linie ist optional. Live-Abfahrten, SEV, Zugausfälle und automatische Zugwenden werden ausgewertet. Der Altmodus mit fester Uhrzeit bleibt für bestehende Konfigurationen erhalten."
       }
@@ -83,6 +85,9 @@
       },
       "direct_bus_connections": {
         "name": "Direkte Busverbindungen"
+      },
+      "transitous_connections": {
+        "name": "Alternative Verbindungen (Transitous)"
       }
     }
   }
