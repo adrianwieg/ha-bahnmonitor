@@ -15,6 +15,7 @@ from .disruptions import extract_route_alerts, extract_board_alerts, merge_route
 from .debug import board_probe, journeys_probe
 from .turnaround import detect_turnarounds
 from .route_departures import collect_departures, collect_arrivals, summarise_departures
+from .corridor import find_partial_bus_sections
 from .route_health import collect_previous, collect_upcoming, observation_key, summarise
 from .logic import (
     cancellation, delay_minutes, evaluate_turnaround, matches_departure,
@@ -495,6 +496,10 @@ class BahnCoordinator(DataUpdateCoordinator):
                     "errors": route.get("alert_source_errors", []),
                 },
                 "station_boards": route.get("board_counts", {}),
+                "partial_corridor": {
+                    "status": (route.get("corridor") or {}).get("status"),
+                    "candidate_count": (route.get("corridor") or {}).get("candidate_count", 0),
+                },
                 "debug_snapshot_available": bool(self._source_debug.get("station_boards")),
                 "route_probe_summary": {
                     key: {
@@ -915,6 +920,23 @@ class BahnCoordinator(DataUpdateCoordinator):
         )
         data["board_incidents"] = board_incidents[:20]
         data["board_counts"] = board_counts
+        data["corridor"] = find_partial_bus_sections(
+            now=now,
+            endpoints=[
+                {
+                    "station": self.settings["origin"],
+                    "departures": boards_by_station.get(self.settings["origin_id"]),
+                    "arrivals": arrivals_by_station.get(self.settings["origin_id"]),
+                },
+                {
+                    "station": self.settings["destination"],
+                    "departures": boards_by_station.get(self.settings["destination_id"]),
+                    "arrivals": arrivals_by_station.get(self.settings["destination_id"]),
+                },
+            ],
+            lines=lines,
+        )
+        self._source_debug["corridor"] = data["corridor"]
         data["arrivals"] = data["timetable"]["arrivals"]
         data["departures"] = data["timetable"]["departures"]
         data["departure_count"] = data["timetable"]["departure_count"]
