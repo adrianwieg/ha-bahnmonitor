@@ -99,12 +99,12 @@ def test_valid_small_station_is_deferred_when_only_static_index_responds():
 
 
 
-def test_different_bus_platform_stop_looked_up_with_dbweb_profile():
+def test_different_bus_platform_stop_looked_up_with_dbnav_profile():
     from_stop = "Leinefelde Bahnhof, Leinefelde-Worbis"
 
     async def fake(path, params):
         assert path == "/locations"
-        assert params["profile"] == "dbweb"
+        assert params["profile"] == "dbnav"
         assert params["query"] == from_stop
         return [{"type": "stop", "id": "12345678", "name": from_stop}]
 
@@ -128,7 +128,7 @@ def test_public_bus_router_uses_actual_stop_ids_and_buses():
     assert path == "/journeys"
     assert params["from"] == "11111"
     assert params["to"] == "22222"
-    assert params["profile"] == "dbweb"
+    assert params["profile"] == "dbnav"
     assert params["bus"] == "true"
     assert params["departure"] == when.isoformat()
 
