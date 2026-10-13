@@ -24,6 +24,8 @@ def load(name):
 load("dbf")
 turns = load("turnaround")
 departures = load("route_departures")
+load("disruptions")
+debugger = load("debug")
 now = datetime(2026, 10, 8, 15, 40, tzinfo=ZoneInfo("Europe/Berlin"))
 
 
@@ -181,3 +183,58 @@ def test_empty_live_boards_cannot_prove_absence_of_turnaround():
     assert report["candidate_count"] == 0
     assert report["relevant_services"] == 0
     assert report["source_status"] == "online"
+
+
+
+def test_debug_shows_sev_at_completely_different_clock_time():
+    """Replacement bus is observable without matching an RE departure time."""
+    sample = [
+        {"train": "RE RE1", "scheduledDeparture": "16:09",
+         "destination": "Göttingen", "route": ["Göttingen"]},
+        {"train": "Bus SEV RE1", "scheduledDeparture": "12:35",
+         "destination": "Göttingen", "route": ["Göttingen"]},
+    ]
+    report = debugger.board_probe(
+        sample, now=now, station="Leinefelde", other="Göttingen",
+        direction="same", mode="dep", lines=("RE 1",),
+    )
+    assert report["raw_count"] == 2
+    assert report["explicit_sev_count"] == 1
+    sev_row = next(row for row in report["samples"] if row["explicit_sev"])
+    assert sev_row["scheduled"] == "12:35"
+    assert "ausserhalb_zeitfenster" in sev_row["excluded_by"]
+
+
+def test_debug_identifies_partial_section_that_regular_filter_excludes():
+    report = debugger.board_probe(
+        [{
+            "train": "Bus RE1", "scheduledDeparture": "16:50",
+            "destination": "Eichenberg", "route": ["Eichenberg"],
+        }],
+        now=now, station="Leinefelde", other="Göttingen",
+        direction="same", mode="dep", lines=("RE 1",),
+    )
+    assert report["raw_count"] == 1
+    assert report["bus_label_count"] == 1
+    assert report["explicit_sev_count"] == 0
+    assert report["route_match_count"] == 0
+    assert "ziel_oder_streckenabschnitt_passt_nicht" in report["samples"][0]["excluded_by"]
+
+
+def test_debug_shows_actual_planned_bus_time_from_connection():
+    api_response = {"journeys": [{
+        "legs": [
+            {"line": {"name": "Bus SEV RE1", "product": "bus"},
+             "origin": {"name": "Leinefelde"},
+             "destination": {"name": "Eichenberg"},
+             "plannedDeparture": "2026-10-08T12:35:00+02:00",
+             "departure": "2026-10-08T12:42:00+02:00"},
+        ],
+    }]}
+    snapshot = debugger.journeys_probe(
+        api_response, direction="same", requested_at=now,
+    )
+    leg = snapshot["journeys"][0]["legs"][0]
+    assert leg["is_bus"] is True
+    assert leg["explicit_sev"] is True
+    assert leg["planned_departure"] == "2026-10-08T12:35:00+02:00"
