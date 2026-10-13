@@ -673,3 +673,53 @@ def test_route_setup_can_recover_missing_eva_ids_without_reconfiguration(monkeyp
     assert settings["station_lookup_pending"] is False
     assert recovered["route_health"]["status_code"] != "station_lookup_pending"
     assert provider.board_calls > 0
+
+
+def test_manual_time_probe_does_not_infer_bus_schedule_from_train(monkeypatch):
+    """Debug queries retain actual replacement bus times, independent of trains."""
+    coordinator_module, error = load_coordinator(monkeypatch)
+
+    class Provider:
+        called_at = []
+        async def journeys(self, start, destination, when):
+            self.called_at.append(when.isoformat())
+            return {"journeys": [{"legs": [{
+                "line": {"name": "Bus SEV RE1", "product": "bus"},
+                "origin": {"name": "Leinefelde"},
+                "destination": {"name": "Eichenberg"},
+                "plannedDeparture": "2026-10-08T12:35:00+02:00",
+            }]}]}
+
+    api = Provider()
+    coord = coordinator_module.BahnCoordinator(None, api, {
+        "name": "Alle Linien", "monitor_mode": "route",
+        "origin": "Leinefelde", "destination": "Göttingen",
+        "origin_id": "8010203", "destination_id": "8000128", "line": "",
+    }, "test-debug")
+    requested = NOW.replace(hour=12, minute=0)
+    result = asyncio.run(coord.async_debug_connection_at(requested))
+    assert len(api.called_at) == 2
+    assert api.called_at == [requested.isoformat()] * 2
+    leg = result["directions"]["same"]["journeys"][0]["legs"][0]
+    assert leg["planned_departure"] == "2026-10-08T12:35:00+02:00"
+    assert leg["explicit_sev"] is True
+    assert leg["destination"] == "Eichenberg"
+    assert coord._source_debug["manual_probes"][-1]["requested_at"] == requested.isoformat()
+
+
+def test_manual_debug_provider_failure_visible_but_no_false_sev(monkeypatch):
+    coordinator_module, error = load_coordinator(monkeypatch)
+
+    class Offline:
+        async def journeys(self, start, end, when):
+            raise error("HTTP 503")
+
+    coord = coordinator_module.BahnCoordinator(None, Offline(), {
+        "name": "Strecke", "monitor_mode": "route",
+        "origin": "A", "destination": "B",
+        "origin_id": "1", "destination_id": "2", "line": "",
+    }, "test-offline")
+    result = asyncio.run(coord.async_debug_connection_at(NOW))
+    assert result["directions"]["same"]["status"] == "error"
+    assert "503" in result["directions"]["reverse"]["error"]
+    assert len(coord._source_debug["manual_probes"]) == 1
