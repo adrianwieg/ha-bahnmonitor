@@ -182,6 +182,49 @@ class BahnApi:
             raise BahnApiError("Invalid journey response")
         return data
 
+    async def resolve_public_stop(self, stop_name: str, *, profile: str = "dbweb") -> tuple[str, str]:
+        """Find an exact local bus stop, NOT a rail station ID.
+
+        Example: the DB app distinguishes Leinefelde Bahnhof from its rail
+        platforms and Göttingen Bahnhof/ZOB from Göttingen railway station.
+        We do not silently substitute either rail EVA number.
+        """
+        if stop_name.strip().isdigit():
+            return stop_name.strip(), stop_name.strip()
+        data = await self._get("/locations", {
+            "query": stop_name.strip(), "results": 30,
+            "stops": "true", "poi": "false", "addresses": "false",
+            "profile": profile, "language": "de", "pretty": "false",
+        })
+        if not isinstance(data, list):
+            raise BahnApiError("Bus-Haltestellensuche: ungültige Antwort")
+        # Use exact stop names; accepting a similarly named station can
+        # silently turn a replacement bus into a non-existent train service.
+        from .stations import select_station
+        found = select_station(data, stop_name)
+        if found is None:
+            raise StationNotFound(
+                f"Bus-Haltestelle '{stop_name}' nicht eindeutig im Fahrplandienst"
+            )
+        return found
+
+    async def bus_journeys(
+        self, from_stop_id: str, to_stop_id: str, when: datetime,
+        *, profile: str = "dbweb",
+    ) -> dict:
+        """Opt-in bus-stop routing with real bus stops, not station EVA IDs."""
+        data = await self._get("/journeys", {
+            "from": from_stop_id, "to": to_stop_id,
+            "departure": when.isoformat(), "results": 8,
+            "profile": profile, "bus": "true",
+            "notOnlyFastRoutes": "true", "remarks": "true",
+            "stopovers": "true", "routingMode": "HYBRID",
+            "language": "de", "pretty": "false",
+        })
+        if not isinstance(data, dict) or not isinstance(data.get("journeys"), list):
+            raise BahnApiError("Bus-Verbindungsauskunft: ungültige Antwort")
+        return data
+
     async def trip(self, trip_id: str) -> dict:
         from urllib.parse import quote
         data = await self._get(f"/trips/{quote(trip_id, safe='')}", {"stopovers": "true", "pretty": "false"})
