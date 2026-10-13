@@ -137,7 +137,7 @@ def test_public_bus_router_uses_actual_stop_ids_and_buses():
 def test_bus_stop_city_order_aliases_but_no_rail_station_substitution():
     from_name = "Leinefelde Bahnhof, Leinefelde-Worbis"
     to_name = "Bahnhof/ZOB, Göttingen"
-    resolver = load("stations") if False else sys.modules[f"{PKG}.stations"]
+    resolver = sys.modules[f"{PKG}.stations"]
     origin = [
         {"type": "station", "id": "8010203", "name": "Leinefelde"},
         {"type": "stop", "id": "1234567", "name": "Leinefelde, Bahnhof",
