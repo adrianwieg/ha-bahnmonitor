@@ -19,6 +19,7 @@ async def async_setup_entry(hass, entry, async_add_entities):
         BahnRouteMessagesSensor(coordinator, entry),
         BahnPartialBusSensor(coordinator, entry),
         BahnDirectBusSensor(coordinator, entry),
+        BahnTransitousSensor(coordinator, entry),
         BahnDebugSensor(coordinator, entry),
         BahnProviderSensor(coordinator, entry),
     ]
@@ -458,10 +459,58 @@ class BahnDirectBusSensor(BahnEntity):
         ) or {}
         return {
             "source_status": report.get("status"),
+            "primary_source_status": report.get("primary_status"),
+            "fallback_source_status": report.get("fallback_status"),
+            "source_attribution": report.get("attribution_url"),
             "services": (report.get("services") or [])[:20],
             "service_count": report.get("service_count", 0),
             "explicit_sev_count": report.get("explicit_sev_count", 0),
             "bus_stops": report.get("bus_stops"),
             "errors": report.get("errors", []),
             "note": report.get("note"),
+        }
+
+
+class BahnTransitousSensor(BahnEntity):
+    """Independent planned journeys, opt-in only with provider permission."""
+
+    _attr_icon = "mdi:transit-connection-variant"
+    _attr_name = "Alternative Verbindungen"
+
+    def __init__(self, coordinator, entry):
+        super().__init__(coordinator, entry)
+        self._attr_unique_id = f"{entry.entry_id}_transitous_connections"
+
+    @property
+    def native_value(self):
+        info = ((self.coordinator.data or {}).get("route_health") or {}).get(
+            "transitous"
+        ) or {}
+        status = info.get("status")
+        if status == "approval_required":
+            return "Freigabe Transitous ausstehend"
+        if status == "not_needed":
+            return "Andere Quelle liefert Verbindungen"
+        if status in ("unavailable", "partial") and not info.get("routes"):
+            return "Transitous nicht erreichbar"
+        if status in ("online", "partial"):
+            return f"{len(info.get('routes', []))} Verbindung(en)"
+        return "Noch nicht geprüft"
+
+    @property
+    def extra_state_attributes(self):
+        info = ((self.coordinator.data or {}).get("route_health") or {}).get(
+            "transitous"
+        ) or {}
+        return {
+            "source_status": info.get("status"),
+            "source": "Transitous (MOTIS)",
+            "source_attribution": "https://transitous.org/sources/",
+            "api_policy": "https://transitous.org/api/",
+            "routes": (info.get("routes") or [])[:12],
+            "direct_buses": (info.get("direct_buses") or [])[:12],
+            "direct_bus_count": len(info.get("direct_buses") or []),
+            "errors": info.get("errors", []),
+            "checked_at": info.get("checked_at"),
+            "note": info.get("reason", info.get("service_limit")),
         }
