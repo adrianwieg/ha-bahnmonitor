@@ -60,6 +60,10 @@ def test_initial_setup_registers_entities_before_slow_network(monkeypatch):
             self.first_refreshes = 0
             self.real_refreshes = 0
             self.gtfs = None
+            self.manual_checks = []
+
+        async def async_debug_connection_at(self, when):
+            self.manual_checks.append(when)
 
         async def async_config_entry_first_refresh(self):
             assert self._startup_lightweight is True
@@ -83,8 +87,22 @@ def test_initial_setup_registers_entities_before_slow_network(monkeypatch):
     monkeypatch.setitem(sys.modules, spec.name, integration)
     spec.loader.exec_module(integration)
 
+    class Services:
+        def __init__(self):
+            self.actions = {}
+
+        def has_service(self, domain, name):
+            return (domain, name) in self.actions
+
+        def async_register(self, domain, name, handler):
+            self.actions[(domain, name)] = handler
+
+        def async_remove(self, domain, name):
+            self.actions.pop((domain, name), None)
+
     class HA:
         data = {}
+        services = Services()
 
         class ConfigEntries:
             async def async_forward_entry_setups(self, entry, platforms):
@@ -116,9 +134,15 @@ def test_initial_setup_registers_entities_before_slow_network(monkeypatch):
         assert entry.runtime_data.first_refreshes == 1
         assert entry.runtime_data.real_refreshes == 0
         assert entry.background_options[1] is False
+        assert hass.services.has_service("bahnmonitor", "debug_verbindung")
+        call = types.SimpleNamespace(data={"time": "12:30"})
+        await hass.services.actions[("bahnmonitor", "debug_verbindung")](call)
+        assert len(entry.runtime_data.manual_checks) == 1
+        assert entry.runtime_data.manual_checks[0].strftime("%H:%M") == "12:30"
         # HA runs this task in the background after entry setup returns.
         await entry.background
         assert entry.runtime_data.real_refreshes == 1
         assert await integration.async_unload_entry(hass, entry) is True
+        assert not hass.services.has_service("bahnmonitor", "debug_verbindung")
 
     asyncio.run(scenario())
