@@ -17,6 +17,7 @@ async def async_setup_entry(hass, entry, async_add_entities):
         BahnRouteArrivalSensor(coordinator, entry, "reverse"),
         BahnTurnaroundSensor(coordinator, entry),
         BahnRouteMessagesSensor(coordinator, entry),
+        BahnDebugSensor(coordinator, entry),
         BahnProviderSensor(coordinator, entry),
     ]
     if coordinator.settings.get("monitor_mode", "train") != "route":
@@ -323,4 +324,63 @@ class BahnRouteArrivalSensor(BahnEntity):
             ],
             "source_status": timetable.get("source_status"),
             "scope": timetable.get("scope"),
+        }
+
+
+class BahnDebugSensor(BahnEntity):
+    """Small UI summary; detailed samples remain in HA downloadable diagnostics."""
+
+    _attr_icon = "mdi:bug-outline"
+    _attr_name = "Datenquellen-Debug"
+
+    def __init__(self, coordinator, entry):
+        super().__init__(coordinator, entry)
+        self._attr_unique_id = f"{entry.entry_id}_data_source_debug"
+
+    @property
+    def native_value(self):
+        debug = getattr(self.coordinator, "_source_debug", {})
+        boards = debug.get("station_boards", {})
+        if not boards:
+            return "Noch keine Datenquellen geprüft"
+        raw = sum(item.get("raw_count", 0) for item in boards.values())
+        matched = sum(item.get("fully_matched_count", 0) for item in boards.values())
+        bus = sum(item.get("bus_label_count", 0) for item in boards.values())
+        return f"{raw} Tafel / {matched} passend / {bus} Bus-Hinweise"
+
+    @property
+    def extra_state_attributes(self):
+        debug = getattr(self.coordinator, "_source_debug", {})
+        probes = debug.get("manual_probes") or []
+        return {
+            "checked_at": debug.get("last_collected_at"),
+            "route": debug.get("route"),
+            "station_boards": {
+                key: {
+                    "status": val.get("status"),
+                    "total": val.get("raw_count", 0),
+                    "route_match": val.get("route_match_count", 0),
+                    "line_filter_match": val.get("line_filter_match_count", 0),
+                    "fully_matched": val.get("fully_matched_count", 0),
+                    "bus_labels": val.get("bus_label_count", 0),
+                    "sev_evidence": val.get("explicit_sev_count", 0),
+                    "error": val.get("error"),
+                }
+                for key, val in debug.get("station_boards", {}).items()
+            },
+            "journey_queries": {
+                key: {
+                    "status": val.get("status"),
+                    "returned": val.get("returned_journey_count"),
+                    "requested_at": val.get("requested_at"),
+                    "error": val.get("error"),
+                }
+                for key, val in debug.get("journey_queries", {}).items()
+            },
+            "last_manual_probe_at": probes[-1].get("requested_at") if probes else None,
+            "hint": (
+                "Für ausgefilterte Busse und ihre Zeiten vollständige Diagnose "
+                "der Integration herunterladen (source_debug.station_boards/"
+                "manual_probes)."
+            ),
         }
