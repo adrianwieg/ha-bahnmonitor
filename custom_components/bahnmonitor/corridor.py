@@ -85,6 +85,8 @@ def find_partial_bus_sections(
         ("reverse", endpoints[1], endpoints[0]),
     )
     candidates = {}
+    observed_sections = {}
+    rejected_timing = 0
     coverage = 0
     for direction, first, last in pairs:
         begin, end = first["station"], last["station"]
@@ -115,10 +117,24 @@ def find_partial_bus_sections(
                 if not any(norm(stop) == norm(interchange)
                            for stop in rail_path[:-1]):
                     continue
+                section_key = (direction, "bus_from_origin", _bus_name(bus),
+                               str(bus.get("scheduledDeparture")), norm(interchange))
+                observed_sections[section_key] = _observed_bus_section(
+                    now, bus, bus_path, interchange, direction,
+                    begin, end, "bus_from_origin", lines,
+                )
+                # Necessary but not sufficient: a train cannot have already
+                # ARRIVED at B before the bus even departs A.
+                bus_start = clock_on_day(bus.get("scheduledDeparture"), now)
+                train_end = clock_on_day(rail.get("scheduledArrival"), now)
+                if bus_start is None or train_end is None or train_end <= bus_start:
+                    rejected_timing += 1
+                    continue
                 _append_candidate(
                     candidates, now, bus, bus_path, rail, interchange,
                     direction, begin, end, "bus_from_origin", lines,
                 )
+                observed_sections[section_key]["chronology_possible"] = True
                 break
 
         # The bus can instead be the final leg into the destination;
@@ -139,29 +155,51 @@ def find_partial_bus_sections(
                 if not any(norm(stop) == norm(interchange)
                            for stop in rail_path[1:]):
                     continue
+                section_key = (direction, "bus_to_destination", _bus_name(bus),
+                               str(bus.get("scheduledArrival")), norm(interchange))
+                observed_sections[section_key] = _observed_bus_section(
+                    now, bus, bus_path, interchange, direction,
+                    begin, end, "bus_to_destination", lines,
+                )
+                # Train from A must depart BEFORE the bus arrives at B.
+                train_start = clock_on_day(rail.get("scheduledDeparture"), now)
+                bus_end = clock_on_day(bus.get("scheduledArrival"), now)
+                if train_start is None or bus_end is None or train_start >= bus_end:
+                    rejected_timing += 1
+                    continue
                 _append_candidate(
                     candidates, now, bus, bus_path, rail, interchange,
                     direction, begin, end, "bus_to_destination", lines,
                 )
+                observed_sections[section_key]["chronology_possible"] = True
                 break
 
     rows = sorted(
         candidates.values(),
         key=lambda x: (x["scheduled"] or "", x["direction"], x["train"]),
     )[:20]
+    sections = sorted(
+        observed_sections.values(),
+        key=lambda x: (x["scheduled"] or "", x["direction"], x["train"]),
+    )[:20]
     return {
         "status": (
             "candidates_found" if rows else
+            "sections_only" if sections else
             "none_observed" if coverage == 2 else "partial" if coverage else "unavailable"
         ),
         "candidates": rows,
         "candidate_count": len(rows),
+        "observed_bus_sections": sections,
+        "observed_section_count": len(sections),
+        "rejected_timing_count": rejected_timing,
         "source_status": "online" if coverage == 2 else "partial" if coverage else "unavailable",
         "confirmed_sev": False,
         "note": (
-            "Mögliche Bus-Teilstrecken: gemeinsamer Umsteigebahnhof mit "
-            "einer Zugstrecke vom anderen Endpunkt. Weder SEV-Zuordnung "
-            "noch Umsteigezeiten/Fahrzeugdurchbindung sind bestätigt."
+            "Bus-Teilstrecken und zeitlich mögliche Anschlüsse werden getrennt. "
+            "Eine spätere Ankunft am Ziel als die Busabfahrt ist nur eine "
+            "notwendige Bedingung, kein Nachweis eines Umstiegs. "
+            "Weder offizieller SEV noch Anschluss oder Durchbindung bestätigt."
         ),
     }
 
@@ -196,6 +234,35 @@ def _append_candidate(
         "connecting_line": rail_line,
         "role": role,
         "line_filter_match": _is_filtered(bus, lines),
+        "confirmed_sev": False,
+        "transfer_confirmed": False,
+        "source": "DBF/IRIS-TTS",
+    }
+
+
+def _observed_bus_section(
+    now, bus: dict, path: list[str], interchange: str, direction: str,
+    begin: str, end: str, role: str, filters: tuple[str, ...],
+) -> dict:
+    """Preserve the observed bus regardless of whether a train connection fits."""
+    when = bus.get(
+        "scheduledDeparture" if role == "bus_from_origin" else "scheduledArrival"
+    )
+    parsed = clock_on_day(when, now)
+    return {
+        "direction": direction,
+        "monitored_route": f"{begin} → {end}",
+        "train": _bus_name(bus),
+        "line": _row_line(bus),
+        "scheduled": parsed.isoformat() if parsed else str(when or ""),
+        "time_type": "departure" if role == "bus_from_origin" else "arrival",
+        "bus_start": path[0],
+        "bus_end": path[-1],
+        "via": path[:15],
+        "interchange": interchange,
+        "role": role,
+        "line_filter_match": _is_filtered(bus, filters),
+        "chronology_possible": False,
         "confirmed_sev": False,
         "transfer_confirmed": False,
         "source": "DBF/IRIS-TTS",
