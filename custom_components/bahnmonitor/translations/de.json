@@ -18,8 +18,8 @@
           "history_enabled": "Historische Zugbeobachtungen speichern",
           "turnaround_at": "Wendeerkennung für Altmodus",
           "monitor_mode": "Überwachungsart",
-          "bus_origin_stop": "Bus-Abfahrtshaltestelle (optional; genauer Name aus der Fahrplanauskunft)",
-          "bus_destination_stop": "Bus-Zielhaltestelle (optional; genauer Name aus der Fahrplanauskunft)"
+          "bus_origin_stop": "Nur bei Bedarf: Bus-Abfahrtshaltestelle manuell überschreiben",
+          "bus_destination_stop": "Nur bei Bedarf: Bus-Zielhaltestelle manuell überschreiben"
         }
       }
     },
@@ -46,8 +46,8 @@
           "history_enabled": "Historische Zugbeobachtungen speichern",
           "turnaround_at": "Wendeerkennung für Altmodus",
           "monitor_mode": "Überwachungsart",
-          "bus_origin_stop": "Bus-Abfahrtshaltestelle (optional; genauer Name aus der Fahrplanauskunft)",
-          "bus_destination_stop": "Bus-Zielhaltestelle (optional; genauer Name aus der Fahrplanauskunft)"
+          "bus_origin_stop": "Nur bei Bedarf: Bus-Abfahrtshaltestelle manuell überschreiben",
+          "bus_destination_stop": "Nur bei Bedarf: Bus-Zielhaltestelle manuell überschreiben"
         },
         "description": "Bahnverkehr zwischen zwei Bahnhöfen überwachen. Start und Ziel sind Pflicht, die Linie ist optional. Live-Abfahrten, SEV, Zugausfälle und automatische Zugwenden werden ausgewertet. Der Altmodus mit fester Uhrzeit bleibt für bestehende Konfigurationen erhalten."
       }
