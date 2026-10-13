@@ -53,6 +53,7 @@ class BahnCoordinator(DataUpdateCoordinator):
         self._alerts_checked_at: datetime | None = None
         self._alerts_retry_at: datetime | None = None
         self._alerts_cache: dict | None = None
+        self._debug_last_probe_at: datetime | None = None
         self._source_debug: dict = {"station_boards": {}, "journey_queries": {}, "note": "Noch keine Live-Abfrage"}
         self._entry_id = entry_id
         self._station_retry_at: datetime | None = None
@@ -520,6 +521,19 @@ class BahnCoordinator(DataUpdateCoordinator):
         Does NOT mark any train/SEV as confirmed or change the live sensors.
         Called exclusively by a user-triggered HA action, not every refresh.
         """
+        now = dt_util.now().astimezone(TZ)
+        if (
+            self._debug_last_probe_at is not None
+            and now < self._debug_last_probe_at + timedelta(seconds=60)
+        ):
+            return {
+                "status": "rate_limited",
+                "retry_at": (
+                    self._debug_last_probe_at + timedelta(seconds=60)
+                ).isoformat(),
+                "note": "Debugabfrage erst nach 60 Sekunden wiederholen.",
+            }
+        self._debug_last_probe_at = now
         rows = {}
         for direction, start_id, end_id, origin, destination in (
             ("same", self.settings.get("origin_id"), self.settings.get("destination_id"),
