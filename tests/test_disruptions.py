@@ -159,8 +159,10 @@ def test_partial_bus_route_is_visible_but_never_confirmed_sev():
         "sample_count": 0,
         "source_status": "online",
         "corridor": {
-            "candidate_count": 1,
-            "candidates": [
+            "candidate_count": 0,
+            "candidates": [],
+            "observed_section_count": 1,
+            "observed_bus_sections": [
                 {
                     "train": "Bus RE8",
                     "interchange": "Eichenberg",
