@@ -25,6 +25,49 @@ Alternativ kann eine bekannte, gültige **numerische EVA-ID** direkt in das
 Bahnhofsfeld eingetragen werden. Sie benötigt bei der Einrichtung keine
 Online-Bahnhofssuche.
 
+## v0.4.4: Teilstrecken über gemeinsame Umsteigebahnhöfe
+
+Der öffentliche Fahrplandienst für vollständige Verbindungen kann HTTP 503
+melden, während die IRIS-Bahnhofstafeln weiterhin Busfahrten und Züge
+liefern. Eine einzelne Busfahrt muss die komplette überwachte Strecke
+**nicht** bedienen.
+
+Neu ist deshalb die **geografisch/strukturelle Verknüpfung von
+Teilstrecken**: Die Integration vergleicht die Abfahrtstafeln am ersten
+Endpunkt mit den Ankunftstafeln am zweiten (auch in Gegenrichtung). Endet
+eine als Bus gekennzeichnete Fahrt an einem Bahnhof, den eine Zugfahrt
+auf der anderen Seite laut veröffentlichtem Halteverlauf bedient,
+wird die Busfahrt als **mögliche Bus-Teilstrecke** angezeigt.
+
+Das bleibt eine **unbestätigte Zuordnung**: Gleicher Umsteigebahnhof
+belegt weder ausreichende Umsteigezeit noch die offizielle
+Ersatzverkehrs-Funktion eines Busses. Eine andere Bus-Liniennummer
+wird deshalb **nicht automatisch** der optional eingestellten
+Bahnlinie zugeschrieben.
+
+Ein tatsächliches Beispiel aus einem Diagnoseexport zeigt:
+Bus RE8 fährt um **21:20** ab Leinefelde bis **Eichenberg**. In den
+Göttinger Tafeln stehen RB83/RB87 über Eichenberg. Obwohl keine
+durchgehende Fahrt Leinefelde–Göttingen erscheint, kann dieser Bus
+als möglicher Teilabschnitt angezeigt werden. Es wird **keine**
+durchgehende Reiseverbindung und **kein bestätigter SEV** daraus abgeleitet.
+
+Der neue Sensor **Bus-Teilstrecken** enthält die beobachteten
+Abschnitte mit Buslinie, Uhrzeit, Halteverlauf, gemeinsamem
+Umsteigebahnhof und dem Flag `line_filter_match`.
+Außerdem sind sie im `corridor`-Attribut des Sensors `Streckenlage`
+und unter `source_debug.corridor` im Diagnoseexport zu finden.
+
+Fehlen ausdrücklich veröffentlichte SEV-Meldungen, kann die
+Streckenlage jetzt **Bus-Teilstrecke gefunden (SEV ungeprüft)**
+melden, selbst wenn die Verbindungssuche HTTP 503 liefert.
+Der Binärsensor **Schienenersatzverkehr** bleibt dann unverfügbar,
+statt SEV als bestätigt zu markieren.
+
+Die allgemeine Lovelace-Vorlage
+[`examples/route_monitor_card.yaml`](examples/route_monitor_card.yaml)
+zeigt Bus-Teilstrecken separat von offiziellen Störungsmeldungen.
+
 ## v0.4.3: SEV-Debugging bei abweichenden Busfahrzeiten
 
 Für die Frage „Warum erkennt Bahnmonitor den SEV nicht?“ gibt es jetzt zwei
