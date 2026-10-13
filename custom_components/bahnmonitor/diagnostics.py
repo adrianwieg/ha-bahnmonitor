@@ -36,6 +36,9 @@ async def async_get_config_entry_diagnostics(
         "provider_error": data.get("provider_error"),
         "retry_at": data.get("retry_at"),
         "diagnostics": data.get("diagnostics", {}),
+        "source_debug": getattr(coord, "_source_debug", {
+            "status": "not_available_in_this_version"
+        }),
         "journeys": data.get("journeys", []),
         "route_health": data.get("route_health", {}),
     }
