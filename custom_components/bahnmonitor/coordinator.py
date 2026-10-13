@@ -510,23 +510,40 @@ class BahnCoordinator(DataUpdateCoordinator):
 
         trips = []
         errors = []
+        completed = 0
+        # Two *separate* schedule windows when monitoring an evening service:
+        # at the current time and around tomorrow's first early buses. This
+        # does not assume replacement buses use the old RE clock times.
+        windows = [now]
+        if now.hour >= 16:
+            dawn = (now + timedelta(days=1)).replace(
+                hour=4, minute=0, second=0, microsecond=0,
+            )
+            windows.append(dawn)
         for direction, first, last, start, end in (
             ("same", ids[0], ids[1], names[0], names[1]),
             ("reverse", ids[1], ids[0], names[1], names[0]),
         ):
-            try:
-                data = await router(first, last, now)
-            except BahnApiError as exc:
-                errors.append(f"{direction}: {exc}")
-                continue
-            trips.extend(collect_bus_connections(
-                data, direction=direction, origin_stop=start,
-                destination_stop=end, now=now,
-            ))
+            for query_at in windows:
+                try:
+                    data = await router(first, last, query_at)
+                except BahnApiError as exc:
+                    errors.append(f"{direction} {query_at.strftime('%H:%M')}: {exc}")
+                    # Do not repeatedly hit a failing service within one run.
+                    break
+                completed += 1
+                trips.extend(collect_bus_connections(
+                    data, direction=direction, origin_stop=start,
+                    destination_stop=end, now=now,
+                ))
+        trips = list({
+            (trip["direction"], trip["name"], trip["scheduled_departure"]): trip
+            for trip in trips
+        }.values())
         result = summarise_bus(
             trips, source_status=(
-                "online" if not errors else "partial" if len(errors) == 1
-                else "unavailable"
+                "online" if not errors and completed == len(windows) * 2
+                else "partial" if completed else "unavailable"
             ), errors=errors,
         )
         result["bus_stops"] = {
