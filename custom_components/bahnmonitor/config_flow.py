@@ -34,6 +34,8 @@ def schema(defaults: dict | None = None) -> vol.Schema:
         vol.Required("origin", default=x.get("origin", DEFAULT_ORIGIN)): str,
         vol.Required("destination", default=x.get("destination", DEFAULT_DESTINATION)): str,
         vol.Optional("line", default=x.get("line", DEFAULT_LINE)): str,
+        vol.Optional("bus_origin_stop", default=x.get("bus_origin_stop", "")): str,
+        vol.Optional("bus_destination_stop", default=x.get("bus_destination_stop", "")): str,
     }
     if mode == "train":
         fields.update({
@@ -64,6 +66,11 @@ def valid_config(data: dict) -> bool:
         if not origin or not destination or origin.casefold() == destination.casefold():
             return False
         if mode not in ("route", "train"):
+            return False
+        # A single bus stop cannot define a monitored replacement bus route.
+        if bool(data.get("bus_origin_stop", "").strip()) != bool(
+            data.get("bus_destination_stop", "").strip()
+        ):
             return False
         if mode == "route":
             return True
