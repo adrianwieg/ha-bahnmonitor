@@ -12,6 +12,7 @@ from .api import BahnApi, BahnApiError
 from .gtfs import GtfsError
 from .dbf import board_departure, incoming_candidates, match_inbound_origin
 from .disruptions import extract_route_alerts, extract_board_alerts, merge_route_alerts
+from .debug import board_probe, journeys_probe
 from .turnaround import detect_turnarounds
 from .route_departures import collect_departures, collect_arrivals, summarise_departures
 from .route_health import collect_previous, collect_upcoming, observation_key, summarise
@@ -52,6 +53,7 @@ class BahnCoordinator(DataUpdateCoordinator):
         self._alerts_checked_at: datetime | None = None
         self._alerts_retry_at: datetime | None = None
         self._alerts_cache: dict | None = None
+        self._source_debug: dict = {"station_boards": {}, "journey_queries": {}, "note": "Noch keine Live-Abfrage"}
         self._entry_id = entry_id
         self._station_retry_at: datetime | None = None
         self._station_lookup_error: str | None = None
@@ -492,6 +494,18 @@ class BahnCoordinator(DataUpdateCoordinator):
                     "errors": route.get("alert_source_errors", []),
                 },
                 "station_boards": route.get("board_counts", {}),
+                "debug_snapshot_available": bool(self._source_debug.get("station_boards")),
+                "route_probe_summary": {
+                    key: {
+                        "raw_count": value.get("raw_count", 0),
+                        "route_match_count": value.get("route_match_count", 0),
+                        "line_filter_match_count": value.get("line_filter_match_count", 0),
+                        "bus_label_count": value.get("bus_label_count", 0),
+                        "explicit_sev_count": value.get("explicit_sev_count", 0),
+                        "status": value.get("status"),
+                    }
+                    for key, value in self._source_debug.get("station_boards", {}).items()
+                },
                 "iris_route_alert_count": route.get("alert_board_count", 0),
                 "alert_sources": route.get("alert_sources", {}),
                 "turnaround_relevant_services": (
@@ -504,12 +518,23 @@ class BahnCoordinator(DataUpdateCoordinator):
         """Poll route connections sparingly; failures must not be a false all-clear."""
         request = getattr(self.api, "journeys", None)
         if request is None:
+            self._source_debug["journey_queries"] = {
+                "all": {"status": "unsupported", "reason": "Keine Verbindungsabfrage verfügbar"}
+            }
             return {"source_status": "unsupported", "incidents": [], "errors": []}
         if self._alerts_checked_at and self._alerts_cache and (
             now - self._alerts_checked_at < timedelta(minutes=30)
         ):
+            self._source_debug["journey_cache"] = {
+                "status": "cached", "last_checked": self._alerts_checked_at.isoformat(),
+                "next_refresh": (self._alerts_checked_at + timedelta(minutes=30)).isoformat(),
+            }
             return self._alerts_cache
         if self._alerts_retry_at and now < self._alerts_retry_at:
+            self._source_debug["journey_cache"] = {
+                "status": "backoff",
+                "next_retry": self._alerts_retry_at.isoformat(),
+            }
             return {
                 "source_status": "unavailable", "incidents": [],
                 "errors": ["Fahrplandienst: Wiederholungsversuch ausstehend"],
@@ -519,6 +544,8 @@ class BahnCoordinator(DataUpdateCoordinator):
         failures = []
         incidents = []
         journey_count = 0
+        self._source_debug["journey_queries"] = {}
+        self._source_debug["journey_cache"] = {"status": "live_query"}
         for direction, origin_id, destination_id, origin, destination in (
             ("same", self.settings["origin_id"], self.settings["destination_id"],
              self.settings["origin"], self.settings["destination"]),
@@ -533,7 +560,16 @@ class BahnCoordinator(DataUpdateCoordinator):
                 )
             except (BahnApiError, ValueError) as exc:
                 failures.append(f"{direction}: {exc}")
+                self._source_debug["journey_queries"][direction] = {
+                    "status": "error", "requested_at": now.isoformat(),
+                    "error": str(exc), "origin": origin, "destination": destination,
+                    "query_scope": "Verbindungen ab Jetzt; keine Tagesgesamtübersicht",
+                }
                 continue
+            self._source_debug["journey_queries"][direction] = {
+                **journeys_probe(response, direction=direction, requested_at=now),
+                "origin": origin, "destination": destination,
+            }
             success += 1
             journey_count += parsed["journey_count"]
             incidents.extend(parsed["incidents"])
@@ -691,6 +727,13 @@ class BahnCoordinator(DataUpdateCoordinator):
 
         errors: list[str] = []
         successful: list[str] = []
+        self._source_debug["station_boards"] = {}
+        self._source_debug["last_collected_at"] = now.isoformat()
+        self._source_debug["route"] = {
+            "origin": self.settings["origin"],
+            "destination": self.settings["destination"],
+            "line_filter": list(lines),
+        }
         boards_by_station: dict[str, list[dict]] = {}
         board_counts: dict[str, dict] = {}
         board_incidents: list[dict] = []
@@ -709,7 +752,15 @@ class BahnCoordinator(DataUpdateCoordinator):
                 board = await self.api.dbf_board(station_id, mode="dep")
             except BahnApiError as exc:
                 errors.append(f"{direction}: {exc}")
+                self._source_debug["station_boards"][f"{direction}_dep"] = {
+                    "station": origin, "status": "error", "error": str(exc),
+                    "direction": direction, "mode": "dep",
+                }
                 continue
+            self._source_debug["station_boards"][f"{direction}_dep"] = board_probe(
+                board, now=now, station=origin, other=destination,
+                direction=direction, mode="dep", lines=lines,
+            )
             successful.append(direction)
             boards_by_station[station_id] = board
             matching_departures = collect_departures(
@@ -773,8 +824,16 @@ class BahnCoordinator(DataUpdateCoordinator):
         ):
             try:
                 board = await self.api.dbf_board(station_id, mode="arr")
-            except BahnApiError:
+            except BahnApiError as exc:
+                self._source_debug["station_boards"][f"{direction}_arr"] = {
+                    "station": destination, "status": "error", "error": str(exc),
+                    "direction": direction, "mode": "arr",
+                }
                 continue
+            self._source_debug["station_boards"][f"{direction}_arr"] = board_probe(
+                board, now=now, station=destination, other=origin,
+                direction=direction, mode="arr", lines=lines,
+            )
             arrivals_by_station[station_id] = board
             arrivals_all.extend(collect_arrivals(
                 board, now=now, origin=origin, destination=destination,
