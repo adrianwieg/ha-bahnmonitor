@@ -96,3 +96,38 @@ def test_valid_small_station_is_deferred_when_only_static_index_responds():
 
     with pytest.raises(api_module.BahnApiError, match="teilweise/nicht"):
         resolve(fake, "Dorfstation")
+
+
+
+def test_different_bus_platform_stop_looked_up_with_dbweb_profile():
+    from_stop = "Leinefelde Bahnhof, Leinefelde-Worbis"
+
+    async def fake(path, params):
+        assert path == "/locations"
+        assert params["profile"] == "dbweb"
+        assert params["query"] == from_stop
+        return [{"type": "stop", "id": "12345678", "name": from_stop}]
+
+    api = api_module.BahnApi(None)
+    api._get = fake
+    assert asyncio.run(api.resolve_public_stop(from_stop)) == ("12345678", from_stop)
+
+
+def test_public_bus_router_uses_actual_stop_ids_and_buses():
+    calls = []
+
+    async def fake(path, params):
+        calls.append((path, params))
+        return {"journeys": []}
+
+    api = api_module.BahnApi(None)
+    api._get = fake
+    when = __import__("datetime").datetime.fromisoformat("2026-10-13T21:00:00+02:00")
+    assert asyncio.run(api.bus_journeys("11111", "22222", when)) == {"journeys": []}
+    path, params = calls[0]
+    assert path == "/journeys"
+    assert params["from"] == "11111"
+    assert params["to"] == "22222"
+    assert params["profile"] == "dbweb"
+    assert params["bus"] == "true"
+    assert params["departure"] == when.isoformat()
