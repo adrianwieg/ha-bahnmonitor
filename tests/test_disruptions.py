@@ -148,3 +148,36 @@ def test_connection_outage_with_no_iris_evidence_is_not_all_clear():
     assert merged["incidents"] == []
     assert merged["sev_reported"] is False
     assert "keine bestätigte entwarnung" in merged["alert_note"].lower()
+
+
+
+def test_partial_bus_route_is_visible_but_never_confirmed_sev():
+    route = {
+        "status": "Noch keine Beobachtungen",
+        "status_code": "no_data",
+        "summary": "Keine passenden Direktfahrten",
+        "sample_count": 0,
+        "source_status": "online",
+        "corridor": {
+            "candidate_count": 1,
+            "candidates": [
+                {
+                    "train": "Bus RE8",
+                    "interchange": "Eichenberg",
+                    "confirmed_sev": False,
+                },
+            ],
+        },
+    }
+    result = alerts.merge_route_alerts(
+        route,
+        {"source_status": "unavailable",
+         "incidents": [], "journey_count": 0, "errors": ["HTTP 503"]},
+    )
+    assert result["status_code"] == "partial_bus_unconfirmed"
+    assert "Bus-Teilstrecke" in result["status"]
+    assert result["sev_reported"] is False
+    assert result["incidents"] == []
+    assert result["alert_source_status"] == "unavailable"
+    assert "Eichenberg" in result["summary"]
+    assert "nicht bestätigt" in result["alert_note"].lower()
