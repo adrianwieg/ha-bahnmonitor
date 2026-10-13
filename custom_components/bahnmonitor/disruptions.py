@@ -281,6 +281,30 @@ def merge_route_alerts(route: dict, report: dict) -> dict:
         ),
     )
     if not incidents:
+        partial = (route.get("corridor") or {}).get("candidates") or []
+        if partial and merged.get("status_code") in (
+            "no_data", "limited", "partial_source_unavailable",
+        ):
+            # Board routes can reveal bus sections without explicit notices,
+            # but they DO NOT establish that this is officially SEV.
+            merged["status_code"] = "partial_bus_unconfirmed"
+            merged["status"] = "Bus-Teilstrecke gefunden (SEV ungeprüft)"
+            examples = ", ".join(dict.fromkeys(
+                f"{item['train']} über {item['interchange']}"
+                for item in partial[:3]
+            ))
+            merged["summary"] = (
+                f"{len(partial)} mögliche Bus-Teilstrecke(n) mit Verknüpfung "
+                f"zu einem weiteren Bahnabschnitt beobachtet: {examples}. "
+                "Ein tatsächlicher Umstieg oder offizieller SEV ist damit "
+                "nicht bestätigt."
+            )
+            merged["alert_note"] = (
+                "Ersatzverkehr möglich, aber nicht bestätigt. "
+                "Die Verbindungs-API ist "
+                + ("erreichbar." if source == "online" else "nicht vollständig erreichbar.")
+            )
+            return merged
         if source != "online":
             merged["alert_note"] = (
                 "Verbindungsdienst nicht vollständig erreichbar. "
