@@ -61,9 +61,16 @@ def _place_matches(name: str, candidate: str) -> bool:
             return True
     # "Göttingen, Bahnhof/ZOB" and "Leinefelde Bahnhof, Leinefelde-Worbis".
     parts = [v.strip() for v in candidate.split(",")]
-    return len(parts) > 1 and any(
-        _norm(p) == src for p in parts
-    ) and ("bahnhof" in dst or "zob" in dst or "hbf" in dst)
+    if len(parts) < 2 or not (
+        "bahnhof" in dst or "zob" in dst or "hbf" in dst
+    ):
+        return False
+    if any(_norm(p) == src for p in parts):
+        return True
+    return any(
+        _norm(parts[0]) == src + suffix
+        for suffix in ("bahnhof", "hbf", "hauptbahnhof", "zob")
+    )
 
 
 def select_stop(matches: Any, requested: str) -> dict | None:
