@@ -157,3 +157,79 @@ def test_bus_stop_city_order_aliases_but_no_rail_station_substitution():
     assert resolver.select_public_transport_stop(
         [{"type": "station", "id": "8000128", "name": "Göttingen"}], to_name,
     ) is None
+
+
+
+def test_auto_station_complex_is_bus_platform_not_rail_eva():
+    stations = sys.modules[f"{PKG}.stations"]
+    candidates = [
+        {"type": "stop", "id": "8010203", "name": "Leinefelde",
+         "products": {"regionalExpress": True, "bus": True}},
+        {"type": "stop", "id": "12345678",
+         "name": "Leinefelde Bahnhof, Leinefelde-Worbis",
+         "products": {"bus": True}},
+        {"type": "stop", "id": "7654321", "name": "Leinefelde Ost, Busplatz",
+         "products": {"bus": True}},
+    ]
+    assert stations.station_complex_bus_stop(
+        candidates, "Leinefelde", rail_station_id="8010203",
+    ) == ("12345678", "Leinefelde Bahnhof, Leinefelde-Worbis")
+
+
+def test_auto_gottingen_zob_in_reverse_name_order():
+    stations = sys.modules[f"{PKG}.stations"]
+    assert stations.station_complex_bus_stop([
+        {"type": "stop", "id": "8000128", "name": "Göttingen"},
+        {"type": "stop", "id": "987654", "name": "Göttingen, Bahnhof/ZOB",
+         "products": {"bus": True}},
+    ], "Göttingen", rail_station_id="8000128") == (
+        "987654", "Göttingen, Bahnhof/ZOB",
+    )
+
+
+def test_auto_station_complex_is_ambiguous_and_must_not_pick_random_platform():
+    stations = sys.modules[f"{PKG}.stations"]
+    assert stations.station_complex_bus_stop([
+        {"type": "stop", "id": "123", "name": "Göttingen, Bahnhof/ZOB"},
+        {"type": "stop", "id": "456", "name": "Bahnhof/ZOB, Göttingen"},
+    ], "Göttingen") is None
+
+
+def test_auto_station_complex_must_not_map_entire_city_to_random_bus_stops():
+    stations = sys.modules[f"{PKG}.stations"]
+    assert stations.station_complex_bus_stop([
+        {"type": "stop", "id": "333", "name": "Göttingen, Rathaus"},
+        {"type": "stop", "id": "444", "name": "Bad Göttingen, Bahnhof/ZOB"},
+        {"type": "stop", "id": "555", "name": "Göttingen Ost, Bahnhof"},
+    ], "Göttingen") is None
+
+
+def test_api_automatically_finds_station_complex_bus_stop_with_dbnav():
+    async def fake(path, params):
+        assert path == "/locations"
+        assert params["profile"] == "dbnav"
+        assert params["query"] == "Leinefelde"
+        return [
+            {"type": "stop", "id": "8010203", "name": "Leinefelde"},
+            {"type": "stop", "id": "123456", "name": "Leinefelde, Bahnhof",
+             "products": {"bus": True}},
+        ]
+
+    api = api_module.BahnApi(None)
+    api._get = fake
+    assert asyncio.run(
+        api.resolve_bus_stop_for_station("Leinefelde", "8010203")
+    ) == ("123456", "Leinefelde, Bahnhof")
+
+
+def test_api_ambiguous_bus_stops_not_accepted_silently():
+    async def fake(path, params):
+        return [
+            {"type": "stop", "id": "1", "name": "Göttingen, Bahnhof/ZOB"},
+            {"type": "stop", "id": "2", "name": "Göttingen Bahnhof"},
+        ]
+
+    api = api_module.BahnApi(None)
+    api._get = fake
+    with pytest.raises(api_module.StationNotFound, match="eindeutiger"):
+        asyncio.run(api.resolve_bus_stop_for_station("Göttingen", "8000128"))
