@@ -182,4 +182,4 @@ def test_partial_bus_route_is_visible_but_never_confirmed_sev():
     assert result["incidents"] == []
     assert result["alert_source_status"] == "unavailable"
     assert "Eichenberg" in result["summary"]
-    assert "nicht bestätigt" in result["alert_note"].lower()
+    assert "unbestätigt" in result["alert_note"].lower()
