@@ -400,9 +400,10 @@ class BahnPartialBusSensor(BahnEntity):
     @property
     def native_value(self):
         corridor = (self.coordinator.data or {}).get("route_health", {}).get("corridor") or {}
-        number = corridor.get("candidate_count", 0)
+        number = corridor.get("observed_section_count", 0)
+        possible = corridor.get("candidate_count", 0)
         if number:
-            return f"{number} mögliche Teilstrecke(n)"
+            return f"{number} Busabschnitt(e), {possible} mögliche Anschlusskandidat(en)"
         if corridor.get("source_status") not in ("online", "partial"):
             return "Datenquelle nicht erreichbar"
         return "Keine passende Bus-Teilstrecke beobachtet"
@@ -414,6 +415,9 @@ class BahnPartialBusSensor(BahnEntity):
             "status": corridor.get("status"),
             "candidates": (corridor.get("candidates") or [])[:12],
             "candidate_count": corridor.get("candidate_count", 0),
+            "observed_bus_sections": (corridor.get("observed_bus_sections") or [])[:20],
+            "observed_section_count": corridor.get("observed_section_count", 0),
+            "rejected_timing_count": corridor.get("rejected_timing_count", 0),
             "source_status": corridor.get("source_status"),
             "confirmed_sev": False,
             "note": corridor.get("note"),
