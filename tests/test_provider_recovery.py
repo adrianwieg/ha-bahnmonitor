@@ -789,6 +789,9 @@ def test_bus_service_outage_does_not_generate_fake_departures(monkeypatch):
         async def resolve_public_stop(self, name):
             raise api_error("HTTP 503")
 
+        async def bus_journeys(self, first, last, when):
+            raise AssertionError("No bus route query without valid stop IDs")
+
     coord = coord_module.BahnCoordinator(None, Offline(), {
         "origin": "A", "destination": "B",
         "origin_id": "a", "destination_id": "b",
