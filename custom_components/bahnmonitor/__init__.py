@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.storage import Store
@@ -15,6 +17,7 @@ from .route_health import observation_key
 _LOGGER = logging.getLogger(__name__)
 PLATFORMS = ["sensor", "binary_sensor"]
 STORAGE_VERSION = 1
+LOCAL_TZ = ZoneInfo("Europe/Berlin")
 
 
 async def async_setup_entry(hass, entry):
@@ -66,6 +69,39 @@ async def async_setup_entry(hass, entry):
         name=f"Bahnmonitor {entry.title} Fahrplandaten laden",
         eager_start=False,
     )
+
+    data.setdefault("entries", {})[entry.entry_id] = coordinator
+    if hasattr(hass, "services") and not hass.services.has_service(
+        DOMAIN, "debug_verbindung"
+    ):
+        async def async_debug_verbindung(call):
+            """Manually inspect non-RE-clock SEV connections via HA Actions."""
+            entries = hass.data.get(DOMAIN, {}).get("entries", {})
+            entry_id = str(call.data.get("entry_id") or "").strip()
+            if not entry_id and len(entries) == 1:
+                entry_id = next(iter(entries))
+            if entry_id not in entries:
+                _LOGGER.warning(
+                    "Bahnmonitor Debug: Bei mehreren Einträgen bitte entry_id angeben."
+                )
+                return
+            value = str(call.data.get("time") or "").strip()
+            try:
+                hh, mm = map(int, value.split(":"))
+                if len(value) != 5 or not 0 <= hh < 24 or not 0 <= mm < 60:
+                    raise ValueError("Zeitformat HH:MM erwartet")
+            except (ValueError, TypeError):
+                _LOGGER.warning(
+                    "Bahnmonitor Debug: 'time' muss im Format HH:MM sein."
+                )
+                return
+            now = datetime.now(LOCAL_TZ)
+            requested = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
+            if requested < now:
+                requested += timedelta(days=1)
+            await entries[entry_id].async_debug_connection_at(requested)
+
+        hass.services.async_register(DOMAIN, "debug_verbindung", async_debug_verbindung)
     return True
 
 
@@ -81,4 +117,12 @@ async def async_unload_entry(hass, entry):
             })
         except Exception as exc:
             _LOGGER.warning("Bahnmonitor: Konnte Streckenhistorie nicht speichern: %s", exc)
+    if result:
+        container = hass.data.get(DOMAIN, {})
+        entries = container.get("entries", {})
+        entries.pop(entry.entry_id, None)
+        if not entries and hasattr(hass, "services") and hass.services.has_service(
+            DOMAIN, "debug_verbindung"
+        ):
+            hass.services.async_remove(DOMAIN, "debug_verbindung")
     return result
