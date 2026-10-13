@@ -32,7 +32,12 @@ def _line(leg: dict) -> tuple[str, bool]:
     return name[:100], bus
 
 
-def _stop_matches(actual: object, requested: str) -> bool:
+def _stop_matches(actual: object, requested: str, stop_id: str | None = None) -> bool:
+    # Prefer the resolved stop ID, which is more reliable than a locality
+    # suffix or display-name variant in the journey result.
+    if isinstance(actual, dict) and stop_id:
+        if str(actual.get("id") or "") == str(stop_id):
+            return True
     return bool(norm(_name(actual)) and norm(_name(actual)) == norm(requested))
 
 
@@ -43,6 +48,8 @@ def collect_bus_connections(
     origin_stop: str,
     destination_stop: str,
     now: datetime,
+    origin_stop_id: str | None = None,
+    destination_stop_id: str | None = None,
 ) -> list[dict]:
     """Accept direct, individually timed bus legs between real bus stops."""
     if not isinstance(response, dict):
@@ -62,8 +69,8 @@ def collect_bus_connections(
         if not bus:
             continue
         if not (
-            _stop_matches(leg.get("origin"), origin_stop)
-            and _stop_matches(leg.get("destination"), destination_stop)
+            _stop_matches(leg.get("origin"), origin_stop, origin_stop_id)
+            and _stop_matches(leg.get("destination"), destination_stop, destination_stop_id)
         ):
             continue
         departure = leg.get("plannedDeparture") or leg.get("departure")
