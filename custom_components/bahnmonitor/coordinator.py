@@ -16,6 +16,7 @@ from .debug import board_probe, journeys_probe
 from .turnaround import detect_turnarounds
 from .route_departures import collect_departures, collect_arrivals, summarise_departures
 from .corridor import find_partial_bus_sections
+from .bus_connections import collect_bus_connections, summarise_bus
 from .route_health import collect_previous, collect_upcoming, observation_key, summarise
 from .logic import (
     cancellation, delay_minutes, evaluate_turnaround, matches_departure,
@@ -54,6 +55,9 @@ class BahnCoordinator(DataUpdateCoordinator):
         self._alerts_checked_at: datetime | None = None
         self._alerts_retry_at: datetime | None = None
         self._alerts_cache: dict | None = None
+        self._bus_stop_cache: dict[str, tuple[str, str]] = {}
+        self._bus_checked_at: datetime | None = None
+        self._bus_cache: dict | None = None
         self._debug_last_probe_at: datetime | None = None
         self._source_debug: dict = {"station_boards": {}, "journey_queries": {}, "note": "Noch keine Live-Abfrage"}
         self._entry_id = entry_id
@@ -468,9 +472,76 @@ class BahnCoordinator(DataUpdateCoordinator):
             },
         }
 
+    async def _bus_stop_route(self, now: datetime) -> dict:
+        """Opt-in replacement bus stop monitoring, independent of train EVA IDs."""
+        names = (
+            self.settings.get("bus_origin_stop", "").strip(),
+            self.settings.get("bus_destination_stop", "").strip(),
+        )
+        if not all(names):
+            return summarise_bus(
+                [], source_status="not_configured",
+                errors=["Optional: getrennte Bus-Haltestellen unter Bahnmonitor-Optionen angeben."],
+            )
+        if self._bus_checked_at and self._bus_cache and (
+            now - self._bus_checked_at < timedelta(minutes=60)
+        ):
+            return self._bus_cache
+
+        resolver = getattr(self.api, "resolve_public_stop", None)
+        router = getattr(self.api, "bus_journeys", None)
+        if resolver is None or router is None:
+            return summarise_bus(
+                [], source_status="unsupported", errors=["Bus-Endpunkte nicht unterstützt"],
+            )
+        ids = []
+        try:
+            for name in names:
+                if name not in self._bus_stop_cache:
+                    self._bus_stop_cache[name] = await resolver(name)
+                ids.append(self._bus_stop_cache[name][0])
+        except BahnApiError as exc:
+            result = summarise_bus([], source_status="unavailable", errors=[
+                f"Bus-Haltestellensuche ({names}): {exc}",
+            ])
+            self._bus_checked_at = now
+            self._bus_cache = result
+            return result
+
+        trips = []
+        errors = []
+        for direction, first, last, start, end in (
+            ("same", ids[0], ids[1], names[0], names[1]),
+            ("reverse", ids[1], ids[0], names[1], names[0]),
+        ):
+            try:
+                data = await router(first, last, now)
+            except BahnApiError as exc:
+                errors.append(f"{direction}: {exc}")
+                continue
+            trips.extend(collect_bus_connections(
+                data, direction=direction, origin_stop=start,
+                destination_stop=end, now=now,
+            ))
+        result = summarise_bus(
+            trips, source_status=(
+                "online" if not errors else "partial" if len(errors) == 1
+                else "unavailable"
+            ), errors=errors,
+        )
+        result["bus_stops"] = {
+            "origin": names[0], "destination": names[1],
+            "origin_stop_id": ids[0], "destination_stop_id": ids[1],
+        }
+        self._bus_cache = result
+        self._bus_checked_at = now
+        return result
+
     async def _async_update_route_only(self, now: datetime) -> dict:
         """Monitor any configured A-to-B route without an individual train time."""
         route = await self._route_health(None, now)
+        route["bus_connections"] = await self._bus_stop_route(now)
+        self._source_debug["bus_connections"] = route["bus_connections"]
         board_ok = route.get("source_status") in ("online", "partial")
         alerts_ok = route.get("alert_source_status") in ("online", "partial")
         provider_status = (
@@ -489,6 +560,12 @@ class BahnCoordinator(DataUpdateCoordinator):
                 "monitor_mode": "route",
                 "configured_route": f"{self.settings['origin']} → {self.settings['destination']}",
                 "line_filter": self.settings.get("line") or None,
+                "bus_connections": {
+                    "status": route["bus_connections"]["status"],
+                    "service_count": route["bus_connections"]["service_count"],
+                    "errors": route["bus_connections"]["errors"],
+                    "configured": bool(self.settings.get("bus_origin_stop")),
+                },
                 "connection_alerts": {
                     "source_status": route.get("alert_source_status"),
                     "checked_at": route.get("alert_checked_at"),
