@@ -514,6 +514,57 @@ class BahnCoordinator(DataUpdateCoordinator):
             },
         }
 
+    async def async_debug_connection_at(self, requested_at: datetime) -> dict:
+        """Manually probe connections at a different clock time.
+
+        Does NOT mark any train/SEV as confirmed or change the live sensors.
+        Called exclusively by a user-triggered HA action, not every refresh.
+        """
+        rows = {}
+        for direction, start_id, end_id, origin, destination in (
+            ("same", self.settings.get("origin_id"), self.settings.get("destination_id"),
+             self.settings.get("origin"), self.settings.get("destination")),
+            ("reverse", self.settings.get("destination_id"), self.settings.get("origin_id"),
+             self.settings.get("destination"), self.settings.get("origin")),
+        ):
+            if not start_id or not end_id:
+                rows[direction] = {
+                    "status": "error", "reason": "Bahnhof-IDs fehlen",
+                    "origin": origin, "destination": destination,
+                }
+                continue
+            request = getattr(self.api, "journeys", None)
+            if request is None:
+                rows[direction] = {"status": "unsupported"}
+                continue
+            try:
+                raw = await request(start_id, end_id, requested_at)
+                rows[direction] = {
+                    **journeys_probe(raw, direction=direction, requested_at=requested_at),
+                    "origin": origin, "destination": destination,
+                }
+            except (BahnApiError, ValueError) as exc:
+                rows[direction] = {
+                    "status": "error", "error": str(exc),
+                    "requested_at": requested_at.isoformat(),
+                    "origin": origin, "destination": destination,
+                }
+        record = {
+            "requested_at": requested_at.isoformat(), "directions": rows,
+            "note": (
+                "Gezielte Testabfrage zu gewählter Uhrzeit. Busse werden unabhängig "
+                "von den RE-Fahrzeiten gezeigt. Ein gewöhnlicher Bus beweist keinen SEV."
+            ),
+        }
+        self._source_debug.setdefault("manual_probes", []).append(record)
+        self._source_debug["manual_probes"] = self._source_debug["manual_probes"][-3:]
+        _LOGGER.info(
+            "Bahnmonitor Debugabfrage %s um %s: %s",
+            self.settings.get("name"), requested_at.isoformat(),
+            ", ".join(f"{key}={value.get('status')}" for key, value in rows.items()),
+        )
+        return record
+
     async def _route_alerts(self, now: datetime) -> dict:
         """Poll route connections sparingly; failures must not be a false all-clear."""
         request = getattr(self.api, "journeys", None)
