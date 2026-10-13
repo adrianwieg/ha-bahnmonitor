@@ -18,6 +18,7 @@ async def async_setup_entry(hass, entry, async_add_entities):
         BahnTurnaroundSensor(coordinator, entry),
         BahnRouteMessagesSensor(coordinator, entry),
         BahnPartialBusSensor(coordinator, entry),
+        BahnDirectBusSensor(coordinator, entry),
         BahnDebugSensor(coordinator, entry),
         BahnProviderSensor(coordinator, entry),
     ]
@@ -421,4 +422,46 @@ class BahnPartialBusSensor(BahnEntity):
             "source_status": corridor.get("source_status"),
             "confirmed_sev": False,
             "note": corridor.get("note"),
+        }
+
+
+class BahnDirectBusSensor(BahnEntity):
+    """Direct bus rides at explicitly configured replacement bus stops."""
+
+    _attr_icon = "mdi:bus"
+    _attr_name = "Direkte Busverbindungen"
+
+    def __init__(self, coordinator, entry):
+        super().__init__(coordinator, entry)
+        self._attr_unique_id = f"{entry.entry_id}_direct_bus_connections"
+
+    @property
+    def native_value(self):
+        route = (self.coordinator.data or {}).get("route_health") or {}
+        report = route.get("bus_connections") or {}
+        status = report.get("status")
+        services = report.get("services") or []
+        if services:
+            return f"{len(services)} Busverbindung(en)"
+        if status == "not_configured":
+            return "Bus-Haltestellen nicht eingerichtet"
+        if status in ("unavailable", "partial"):
+            return "Bus-Fahrplandienst gestört"
+        if status == "online":
+            return "Keine direkte Busverbindung übermittelt"
+        return "Noch nicht geprüft"
+
+    @property
+    def extra_state_attributes(self):
+        report = ((self.coordinator.data or {}).get("route_health") or {}).get(
+            "bus_connections"
+        ) or {}
+        return {
+            "source_status": report.get("status"),
+            "services": (report.get("services") or [])[:20],
+            "service_count": report.get("service_count", 0),
+            "explicit_sev_count": report.get("explicit_sev_count", 0),
+            "bus_stops": report.get("bus_stops"),
+            "errors": report.get("errors", []),
+            "note": report.get("note"),
         }
