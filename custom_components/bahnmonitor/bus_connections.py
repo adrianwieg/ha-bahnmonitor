@@ -124,7 +124,7 @@ def summarise_bus(
         "explicit_sev_count": sum(row["explicit_sev"] for row in rows),
         "errors": (errors or [])[:6],
         "note": (
-            "Direkte Busfahrten zwischen den extra konfigurierten Bus-Haltestellen, "
+            "Direkte Busfahrten zwischen zugeordneten Bus-Haltestellen des Bahnhofskomplexes, "
             "unabhängig von den Zugzeiten. 'Bus RE1' allein ist keine "
             "amtlich bestätigte Schienenersatzverkehr-Meldung."
         ),
