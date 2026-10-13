@@ -285,16 +285,18 @@ def test_real_diagnostic_bus_re8_to_eichenberg_is_part_of_corridor():
             },
         ],
     )
-    assert report["status"] == "candidates_found"
+    assert report["status"] == "sections_only"
     assert report["source_status"] == "online"
-    assert report["candidate_count"] == 1
-    first = report["candidates"][0]
+    assert report["candidate_count"] == 0
+    assert report["observed_section_count"] == 1
+    assert report["rejected_timing_count"] >= 1
+    first = report["observed_bus_sections"][0]
     assert first["train"] == "Bus RE8"
     assert first["bus_start"] == "Leinefelde"
     assert first["bus_end"] == "Eichenberg"
     assert first["interchange"] == "Eichenberg"
     assert first["scheduled"].endswith("21:20:00+02:00")
-    assert first["connecting_line"] in ("RB 83", "RB 87")
+    assert first["chronology_possible"] is False
     assert first["confirmed_sev"] is False
     assert first["transfer_confirmed"] is False
 
@@ -322,9 +324,10 @@ def test_corridor_candidate_not_deleted_when_optional_line_differs():
             },
         ],
     )
-    assert report["candidate_count"] == 1
-    assert report["candidates"][0]["line_filter_match"] is False
-    assert report["candidates"][0]["confirmed_sev"] is False
+    assert report["candidate_count"] == 0
+    assert report["observed_section_count"] == 1
+    assert report["observed_bus_sections"][0]["line_filter_match"] is False
+    assert report["observed_bus_sections"][0]["confirmed_sev"] is False
 
 
 def test_bus_not_linked_without_shared_intermediate_station():
@@ -343,3 +346,24 @@ def test_bus_not_linked_without_shared_intermediate_station():
     )
     assert report["status"] == "none_observed"
     assert report["candidate_count"] == 0
+
+
+
+def test_later_train_remains_tentative_and_does_not_claim_a_transfer():
+    report = corridor.find_partial_bus_sections(
+        now=now,
+        endpoints=[
+            {"station": "Leinefelde",
+             "departures": [{"train": "Bus RE8", "scheduledDeparture": "21:20",
+                             "route": ["Leinefelde", "Eichenberg"]}],
+             "arrivals": []},
+            {"station": "Göttingen", "departures": [],
+             "arrivals": [{"train": "CAN RB83", "scheduledArrival": "23:05",
+                           "route": ["Eichenberg", "Friedland(Han)", "Göttingen"]}]},
+        ],
+    )
+    assert report["candidate_count"] == 1
+    assert report["observed_section_count"] == 1
+    assert report["observed_bus_sections"][0]["chronology_possible"] is True
+    assert report["candidates"][0]["transfer_confirmed"] is False
+    assert report["candidates"][0]["confirmed_sev"] is False
