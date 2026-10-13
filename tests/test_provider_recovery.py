@@ -802,3 +802,56 @@ def test_bus_service_outage_does_not_generate_fake_departures(monkeypatch):
     assert result["status"] == "unavailable"
     assert result["services"] == []
     assert "503" in result["errors"][0]
+
+
+
+def test_route_automatically_discovers_bus_stops_without_options(monkeypatch):
+    """Leinefelde -> Göttingen is one configured corridor, rail and bus combined."""
+    coord_module, api_error = load_coordinator(monkeypatch)
+    t = datetime(2026, 10, 13, 19, 29, tzinfo=ZoneInfo("Europe/Berlin"))
+
+    class StationComplexProvider:
+        lookups = []
+        journey_requests = []
+
+        async def resolve_bus_stop_for_station(self, station, station_id):
+            self.lookups.append((station, station_id))
+            return {
+                "Leinefelde": ("bus-ld", "Leinefelde Bahnhof, Leinefelde-Worbis"),
+                "Göttingen": ("bus-goe", "Göttingen, Bahnhof/ZOB"),
+            }[station]
+
+        async def bus_journeys(self, first, last, when):
+            self.journey_requests.append((first, last, when.hour))
+            if first != "bus-ld":
+                return {"journeys": []}
+            return {"journeys": [{
+                "legs": [{
+                    "line": {"name": "Bus RE1", "product": "bus"},
+                    "origin": {"name": "Leinefelde Bahnhof", "id": "bus-ld"},
+                    "destination": {"name": "Bahnhof/ZOB, Göttingen", "id": "bus-goe"},
+                    "plannedDeparture": "2026-10-13T21:25:00+02:00",
+                    "plannedArrival": "2026-10-13T22:30:00+02:00",
+                }],
+            }]}
+
+    api = StationComplexProvider()
+    config = {
+        "monitor_mode": "route", "origin": "Leinefelde", "destination": "Göttingen",
+        "origin_id": "8010203", "destination_id": "8000128", "line": "RE 1",
+    }
+    coord = coord_module.BahnCoordinator(None, api, config, "automatic-complex")
+    observed = asyncio.run(coord._bus_stop_route(t))
+    assert observed["resolution"] == "automatic"
+    assert observed["status"] == "online"
+    assert observed["service_count"] == 1
+    assert observed["services"][0]["name"] == "Bus RE1"
+    assert observed["bus_stops"]["configured_route"] == "Leinefelde → Göttingen"
+    assert observed["bus_stops"]["origin_stop_id"] == "bus-ld"
+    assert observed["bus_stops"]["destination_stop_id"] == "bus-goe"
+    assert api.lookups == [
+        ("Leinefelde", "8010203"),
+        ("Göttingen", "8000128"),
+    ]
+    assert asyncio.run(coord._bus_stop_route(t + timedelta(minutes=10))) is observed
+    assert len(api.journey_requests) == 4
