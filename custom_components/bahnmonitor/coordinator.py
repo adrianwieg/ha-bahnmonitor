@@ -746,6 +746,33 @@ class BahnCoordinator(DataUpdateCoordinator):
         independent = await self._transitous_fallback(now, primary_bus)
         route["transitous"] = independent
         route["bus_connections"] = self._combine_bus_sources(primary_bus, independent)
+        route.setdefault("alert_sources", {})["transitous"] = independent.get("status")
+        # Only explicit provider alerts, NEVER the generic "Bus RE1" label,
+        # can confirm a replacement-service message.
+        known = {
+            (row.get("source"), row.get("text"))
+            for row in (route.get("incidents") or [])
+        }
+        for bus in independent.get("direct_buses", [])[:12]:
+            if not bus.get("explicit_sev"):
+                continue
+            incident = {
+                "type": "sev",
+                "text": (bus.get("remarks") or [
+                    f"Explizite SEV-Meldung für {bus['name']}"
+                ])[0][:400],
+                "route": f"{bus['origin']} → {bus['destination']}",
+                "direction": bus["direction"],
+                "source": "Transitous (MOTIS)",
+                "line": bus["name"],
+            }
+            if (incident["source"], incident["text"]) in known:
+                continue
+            route.setdefault("incidents", []).append(incident)
+            known.add((incident["source"], incident["text"]))
+            route["sev_reported"] = True
+            route["status_code"] = "sev"
+            route["status"] = "Schienenersatzverkehr gemeldet"
         self._source_debug["bus_connections"] = route["bus_connections"]
         self._source_debug["transitous"] = independent
         board_ok = route.get("source_status") in ("online", "partial")
