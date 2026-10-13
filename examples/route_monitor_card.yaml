@@ -12,6 +12,8 @@ content: |-
   {% set arrivals = timetable.get('arrivals', []) %}
   {% set turns = state_attr(route, 'turnaround') or {} %}
   {% set incidents = state_attr(route, 'incidents') or [] %}
+  {% set corridor = state_attr(route, 'corridor') or {} %}
+  {% set buses = corridor.get('candidates', []) %}
   {% set source = state_attr(route, 'alert_source_status') or 'not_checked' %}
   {% set checked = state_attr(route, 'alert_checked_at') %}
 
@@ -57,6 +59,21 @@ content: |-
   {% else %}
   Keine konkrete Verkehrsmeldung übermittelt. **Keine Entwarnung:** Ein SEV
   kann trotzdem existieren, wenn die abgefragte Datenquelle ihn nicht liefert.
+  {% endif %}
+
+  ### 🚌 Busse auf möglichen Teilstrecken
+
+  {% if buses %}
+  **Fahrten aus den Stationstafeln – keine offizielle SEV-Bestätigung:**
+  {% for item in buses[:10] %}
+  - **{{ item.train }}** · {% if item.scheduled %}{{ as_timestamp(item.scheduled) | timestamp_custom('%H:%M') }} Uhr{% else %}Zeit unbekannt{% endif %} ({{ item.time_type }})
+    · {{ item.bus_start }} → {{ item.bus_end }}
+    · gemeinsamer Umsteigebahnhof **{{ item.interchange }}** mit {{ item.connecting_train }}
+    {% if not item.line_filter_match %}(nicht der gewählten Linie zugeordnet){% endif %}
+  {% endfor %}
+  *Die tatsächliche zeitliche Anschlussmöglichkeit wurde nicht geprüft.*
+  {% else %}
+  Keine potenziell verbindbaren Bus-Teilstrecken in den aktuell gelieferten Tafeln.
   {% endif %}
 
   ### 🔁 Automatische Wendebahnhof-Erkennung
