@@ -25,6 +25,28 @@ Alternativ kann eine bekannte, gültige **numerische EVA-ID** direkt in das
 Bahnhofsfeld eingetragen werden. Sie benötigt bei der Einrichtung keine
 Online-Bahnhofssuche.
 
+## v0.4.5: Zeitliche Plausibilität von Bus-Teilstrecken
+
+Ein gemeinsamer Zwischenbahnhof alleine ergibt **keine** Reiseverbindung.
+In einem Diagnoseexport vom 13.10.2026 wurde Bus RE8 um 21:20 Uhr ab
+Leinefelde nach Eichenberg beobachtet. Die im Beispiel sichtbaren Züge
+RB83/RB87 hatten ihre Ankunft in Göttingen schon um 18:45 bzw.
+19:45 Uhr – vor der Busabfahrt. Das kann kein Anschluss sein.
+
+Darum zeigt `sensor.*_bus_teilstrecken` jetzt **zweierlei**:
+- `observed_bus_sections`: tatsächlich beobachtete Busabschnitte,
+  einschließlich Zeit, Linienname, Teilstrecke und möglichem Umsteigepunkt.
+- `candidates`: nur Teilstreckenpaare, deren **Endpunkt-Zeitfolge**
+  nicht bereits widersprüchlich ist. Auch das beweist keinen nutzbaren
+  Anschluss; dafür fehlen im IRIS-Endpunkttafel-Datensatz die konkreten
+  Ankunfts-/Abfahrtszeiten am Umsteigepunkt.
+
+Ein Abschnitt bleibt sichtbar, auch wenn alle beobachteten Züge
+zeitlich davor fahren. Es wird **keine** durchgehende A–B-Fahrt und
+kein offizieller SEV erfunden. Die vollständige Auskunft für beliebige
+Umsteigewege benötigt eine funktionierende Verbindungsschnittstelle
+oder eine geeignete weitere Fahrplandatenquelle.
+
 ## v0.4.4: Teilstrecken über gemeinsame Umsteigebahnhöfe
 
 Der öffentliche Fahrplandienst für vollständige Verbindungen kann HTTP 503
