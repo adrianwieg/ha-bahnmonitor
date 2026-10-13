@@ -1,0 +1,24 @@
+debug_verbindung:
+  name: Verbindung zu einer anderen Uhrzeit prüfen
+  description: >-
+    Fragt den Fahrplandienst einmal gezielt für beide Richtungen zu einer frei
+    wählbaren Uhrzeit ab. Das Ergebnis einschließlich Ersatzbus-Liniennamen,
+    Sollzeiten, Teilstrecken und API-Fehlern wird im herunterladbaren
+    Bahnmonitor-Diagnoseexport unter source_debug.manual_probes gespeichert.
+    Die regulären Sensorzustände werden dadurch nicht verändert.
+  fields:
+    time:
+      name: Abfahrtszeit
+      description: "HH:MM, nächster Zeitpunkt dieser Uhrzeit (heute oder morgen)."
+      required: true
+      example: "07:00"
+      selector:
+        text: {}
+    entry_id:
+      name: Konfigurationseintrag-ID (optional)
+      description: >-
+        Nur erforderlich, wenn mehrere Bahnmonitore eingerichtet sind.
+        ID steht in der Diagnose-Datei / URL des Konfigurationseintrags.
+      required: false
+      selector:
+        text: {}
