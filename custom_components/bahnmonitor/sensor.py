@@ -17,6 +17,7 @@ async def async_setup_entry(hass, entry, async_add_entities):
         BahnRouteArrivalSensor(coordinator, entry, "reverse"),
         BahnTurnaroundSensor(coordinator, entry),
         BahnRouteMessagesSensor(coordinator, entry),
+        BahnPartialBusSensor(coordinator, entry),
         BahnDebugSensor(coordinator, entry),
         BahnProviderSensor(coordinator, entry),
     ]
@@ -383,4 +384,37 @@ class BahnDebugSensor(BahnEntity):
                 "der Integration herunterladen (source_debug.station_boards/"
                 "manual_probes)."
             ),
+        }
+
+
+class BahnPartialBusSensor(BahnEntity):
+    """Observed bus sections linked by a common stop to the opposite board."""
+
+    _attr_icon = "mdi:bus-clock"
+    _attr_name = "Bus-Teilstrecken"
+
+    def __init__(self, coordinator, entry):
+        super().__init__(coordinator, entry)
+        self._attr_unique_id = f"{entry.entry_id}_partial_bus_sections"
+
+    @property
+    def native_value(self):
+        corridor = (self.coordinator.data or {}).get("route_health", {}).get("corridor") or {}
+        number = corridor.get("candidate_count", 0)
+        if number:
+            return f"{number} mögliche Teilstrecke(n)"
+        if corridor.get("source_status") not in ("online", "partial"):
+            return "Datenquelle nicht erreichbar"
+        return "Keine passende Bus-Teilstrecke beobachtet"
+
+    @property
+    def extra_state_attributes(self):
+        corridor = (self.coordinator.data or {}).get("route_health", {}).get("corridor") or {}
+        return {
+            "status": corridor.get("status"),
+            "candidates": (corridor.get("candidates") or [])[:12],
+            "candidate_count": corridor.get("candidate_count", 0),
+            "source_status": corridor.get("source_status"),
+            "confirmed_sev": False,
+            "note": corridor.get("note"),
         }
