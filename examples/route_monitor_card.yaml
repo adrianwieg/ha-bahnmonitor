@@ -13,7 +13,7 @@ content: |-
   {% set turns = state_attr(route, 'turnaround') or {} %}
   {% set incidents = state_attr(route, 'incidents') or [] %}
   {% set corridor = state_attr(route, 'corridor') or {} %}
-  {% set buses = corridor.get('candidates', []) %}
+  {% set buses = corridor.get('observed_bus_sections', []) %}
   {% set source = state_attr(route, 'alert_source_status') or 'not_checked' %}
   {% set checked = state_attr(route, 'alert_checked_at') %}
 
@@ -64,14 +64,15 @@ content: |-
   ### 🚌 Busse auf möglichen Teilstrecken
 
   {% if buses %}
-  **Fahrten aus den Stationstafeln – keine offizielle SEV-Bestätigung:**
+  **Bus-Teilstrecken aus den Stationstafeln – keine durchgehende Verbindung bestätigt:**
   {% for item in buses[:10] %}
   - **{{ item.train }}** · {% if item.scheduled %}{{ as_timestamp(item.scheduled) | timestamp_custom('%H:%M') }} Uhr{% else %}Zeit unbekannt{% endif %} ({{ item.time_type }})
     · {{ item.bus_start }} → {{ item.bus_end }}
-    · gemeinsamer Umsteigebahnhof **{{ item.interchange }}** mit {{ item.connecting_train }}
-    {% if not item.line_filter_match %}(nicht der gewählten Linie zugeordnet){% endif %}
+    · möglicher Umsteigebahnhof **{{ item.interchange }}**
+    {% if item.chronology_possible %}· Späterer Zug am Streckenende vorhanden, Anschlusszeit ungeprüft{% else %}· **Kein zeitlich möglicher Bahnanschluss in den erfassten Daten**{% endif %}
+    {% if not item.line_filter_match %}(Buslinie weicht vom Linienfilter ab){% endif %}
   {% endfor %}
-  *Die tatsächliche zeitliche Anschlussmöglichkeit wurde nicht geprüft.*
+  *Selbst bei möglicher Zeitfolge ist ein Umstieg nicht bestätigt; andere oder spätere Verbindungen können fehlen.*
   {% else %}
   Keine potenziell verbindbaren Bus-Teilstrecken in den aktuell gelieferten Tafeln.
   {% endif %}
