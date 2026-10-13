@@ -25,6 +25,64 @@ Alternativ kann eine bekannte, gültige **numerische EVA-ID** direkt in das
 Bahnhofsfeld eingetragen werden. Sie benötigt bei der Einrichtung keine
 Online-Bahnhofssuche.
 
+## v0.4.3: SEV-Debugging bei abweichenden Busfahrzeiten
+
+Für die Frage „Warum erkennt Bahnmonitor den SEV nicht?“ gibt es jetzt zwei
+Diagnosewege:
+
+**1. Automatisch bei jeder Streckenabfrage:** Home Assistant erzeugt einen
+Sensor **Datenquellen-Debug**. Unter dessen Attributen sind die Mengen an
+IRIS-Rohfahrten, Streckentreffern, Linien-Treffern und Bus-/SEV-Markierungen
+pro Richtung sichtbar. Die vollständigen Einzelbeispiele stehen im
+herunterladbaren **Integrations-Diagnoseexport** unter
+`source_debug.station_boards`. Pro Richtung und Ankunft/Abfahrt werden bis
+zu 30 priorisierte Fahrten ausgewiesen, auch wenn sie aufgrund falscher
+Fahrtrichtung, fehlender Linienbezeichnung oder einer anderen Abfahrtszeit
+nicht in der üblichen Streckenliste erscheinen.
+
+Das Feld `excluded_by` erklärt genau, ob der Fahrt die ausgewählte
+Endstation fehlt (`ziel_oder_streckenabschnitt_passt_nicht`), die Linie
+nicht passt (`linienfilter_passt_nicht`), keine zuordenbare Bahnlinie
+vorliegt (`keine_eindeutige_bahnlinie`) oder die Fahrt außerhalb des
+aktuellen Beobachtungsfensters liegt (`ausserhalb_zeitfenster`).
+`explicit_sev: true` bedeutet eine ausdrücklich veröffentlichte
+Ersatzverkehr-Kennzeichnung; `is_bus_label: true` bedeutet nur, dass die
+Bezeichnung nach einem Bus aussieht, **nicht** zwingend SEV.
+
+**2. Manuelle zeitversetzte Verbindungsabfrage:** In
+**Entwicklerwerkzeuge → Aktionen** folgende Aktion ausführen:
+
+```yaml
+action: bahnmonitor.debug_verbindung
+data:
+  time: "12:00"
+```
+
+Die Aktion fragt **einmal für beide Richtungen** jeweils bis zu sechs
+Verbindungen ab dem nächsten Zeitpunkt 12:00 Uhr (heute oder morgen) ab.
+Die tatsächlichen Ersatzbuszeiten stehen anschließend im Diagnoseexport unter
+`source_debug.manual_probes`. Bei mehreren Bahnmonitor-Einträgen
+`entry_id` in der Aktion ergänzen. Für weitere Tageszeiten die Aktion
+mit z. B. `07:00` oder `17:00` erneut aufrufen, aber bitte nicht in
+kurzen Abständen wiederholen: Der öffentliche Dienst hat Anfragelimits.
+Ein HTTP-503-Fehler erscheint als solche Fehlermeldung im Diagnoseexport.
+Manuelles Debugging ändert **keine** Live-Sensoren und ersetzt keine
+vollständige Fahrplanauskunft.
+
+**Diagnose exportieren:** Einstellungen → Geräte & Dienste →
+Bahnmonitor → ⋮ → Diagnose herunterladen. Im JSON interessieren
+`source_debug.station_boards`, `source_debug.journey_queries` und
+`source_debug.manual_probes`. Besonders wichtig sind
+`scheduled`/`planned_departure`, `train`, `line`,
+`route`, `destination`, `excluded_by` und `error`.
+
+**Wichtig:** Die automatische Verbindungssuche verwendet zurzeit
+`/journeys` mit `results=6` und dem aktuellen Zeitpunkt. Das ist
+**keine** vollständige Tagesabfrage. SEV auf Teilstrecken oder zu anderen
+Zeiten kann damit fehlen, auch wenn er RE1/RE11 heißt. Diese Version
+macht das Problem nachvollziehbar, bestätigt aber keinen Ersatzbus, dessen
+Meldung von keiner Quelle geliefert wird.
+
 ## v0.4.2: Verkehrsmeldungen bei Ausfall des Verbindungsdienstes
 
 Der Streckenmonitor behandelt den öffentlichen Verbindungsdienst und die
