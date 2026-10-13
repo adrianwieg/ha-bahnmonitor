@@ -25,6 +25,75 @@ Alternativ kann eine bekannte, gültige **numerische EVA-ID** direkt in das
 Bahnhofsfeld eingetragen werden. Sie benötigt bei der Einrichtung keine
 Online-Bahnhofssuche.
 
+## v0.4.8: Unabhängige Verbindungen mit Transitous (MOTIS)
+
+**Neu:** Eine zusätzliche Verbindungsauskunft über die eigenständige,
+öffentliche [Transitous/MOTIS-API](https://transitous.org/api/)
+(`https://api.transitous.org/api/v6/plan`).
+Sie ist **nicht** von `v6.db.transport.rest` abhängig. Diese
+Anbindung ist zunächst **standardmäßig deaktiviert**.
+
+### Freigabe des Transitous-Betreibers
+
+Die [Transitous-Nutzungsrichtlinie](https://transitous.org/api/) setzt
+ein nichtkommerzielles Open-Source-Projekt, einen identifizierbaren
+User-Agent und die Attribution der Datenquellen voraus. Für
+potenziell kostenintensive Routingabfragen bittet der Betreiber
+ausdrücklich um **Kontaktaufnahme vor dem Einsatz**.
+
+Der Quellcode dieses Projektes steht jetzt unter der **MIT-Lizenz**
+(siehe `LICENSE`). Vor dem Einschalten der Transitous-Routingabfragen
+bitte unter [Transitous API Policy](https://transitous.org/api/) über den
+angegebenen Matrix-Kontakt mit den Betreibern die zu erwartende
+Last abstimmen. Bahnmonitor nutzt maximal vier `plan`-Abfragen
+(je zwei Richtungen, bei Abend-Abfragen zusätzlich den frühen Morgen)
+sowie die einmalige Haltestellensuche und wartet nach einer Abfrage
+mindestens **zwei Stunden**. Beim HTTP-429-/503-Fehler wird kein
+sofortiger Wiederholungssturm ausgelöst.
+
+**Erst nach bestätigter Abstimmung** in den Bahnmonitor-Optionen
+`Transitous aktivieren (nur nach Betreiberfreigabe)` einschalten.
+Vorher werden **keine Requests** an Transitous gesendet. Diese
+Einstellung bestätigt, dass die Betreiber über diese Nutzung
+informiert wurden und damit einverstanden sind.
+
+### Funktionsweise
+
+Die Integration sucht automatisch die zu `Startbahnhof → Zielbahnhof`
+gehörenden Transitous-Haltestellen (`/api/v1/geocode`) und fragt
+`/api/v6/plan` unabhängig von den üblichen RE-Zugzeiten ab.
+Mit einem 350-m-Radius werden auch nahe ZOB-/Busbahnhof-Halte
+innerhalb eines Bahnhofskomplexes berücksichtigt; es sind
+keine extra SEV-Haltestellen im Bahnmonitor einzutragen.
+
+Transitous liefert einen Reiseplan mit einzelnen Bus- und
+Zugabschnitten. Ein **direkter Bus** (mit höchstens kurzen
+Fußwegen an Anfang/Ende) geht in den Sensor
+**Direkte Busverbindungen** ein. Eine Verbindung mit
+Umstieg erscheint getrennt im Sensor **Alternative Verbindungen**.
+Die korrekte Abfahrtszeit kommt aus dem Fahrplan
+(`scheduledStartTime`), niemals aus einer vermeintlichen
+RE-Abfahrt. Für spätabendliche Suchen wird ein zusätzliches
+Zeitfenster am nächsten Morgen berücksichtigt.
+
+Die bestehende Datenquelle bleibt in der Diagnose unterscheidbar:
+`route_health.bus_connections.primary_status`,
+`route_health.bus_connections.fallback_status`,
+`route_health.transitous` und `source_debug.transitous`.
+**Keine Antwort / API-Ausfall** bedeutet nicht, dass kein Bus fährt.
+Eine Fahrt namens „Bus RE1“ ist Fahrplaninformation; nur ein
+ausdrücklicher SEV-Hinweis bestätigt die
+Schienenersatzverkehrsmeldung.
+
+**Quellenhinweis:** [Transitous-Datenquellen](https://transitous.org/sources/)
+sowie die jeweilige GTFS- und OpenStreetMap-Attribution beachten.
+
+**Aktuelle Grenze:** Die konkreten RE1-Fahrten Leinefelde
+21:25 Uhr und 04:57 Uhr sind im DB Navigator nachgewiesen,
+aber ihre Verfügbarkeit im Transitous-Datensatz ist noch
+**nicht live überprüft**. Die neuen Tests nutzen
+reproduzierbare Testantworten, keinen echten Produktivaufruf.
+
 ## v0.4.7: Automatische Zusammenfassung eines Bahnhofskomplexes
 
 Für die Konfiguration genügt jetzt auch bei Schienenersatzverkehr eine
