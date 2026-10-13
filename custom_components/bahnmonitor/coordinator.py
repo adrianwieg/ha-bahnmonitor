@@ -17,6 +17,7 @@ from .turnaround import detect_turnarounds
 from .route_departures import collect_departures, collect_arrivals, summarise_departures
 from .corridor import find_partial_bus_sections
 from .bus_connections import collect_bus_connections, summarise_bus
+from .transitous import TransitousClient, TransitousError, MIN_REFRESH, ATTRIBUTION_URL
 from .route_health import collect_previous, collect_upcoming, observation_key, summarise
 from .logic import (
     cancellation, delay_minutes, evaluate_turnaround, matches_departure,
@@ -58,6 +59,9 @@ class BahnCoordinator(DataUpdateCoordinator):
         self._bus_stop_cache: dict[str, tuple[str, str]] = {}
         self._bus_checked_at: datetime | None = None
         self._bus_cache: dict | None = None
+        self.transitous_client = None  # injected from shared HA aiohttp session
+        self._transitous_cache: dict | None = None
+        self._transitous_checked_at: datetime | None = None
         self._debug_last_probe_at: datetime | None = None
         self._source_debug: dict = {"station_boards": {}, "journey_queries": {}, "note": "Noch keine Live-Abfrage"}
         self._entry_id = entry_id
@@ -584,11 +588,166 @@ class BahnCoordinator(DataUpdateCoordinator):
         self._bus_checked_at = now
         return result
 
+    async def _transitous_fallback(self, now: datetime, current: dict) -> dict:
+        """Only query independent routing AFTER explicit operator approval.
+
+        Throttled to once/2h; never turns unavailable/no itineraries into an
+        all-clear. DB sources still retain their original individual status.
+        """
+        if not self.settings.get("transitous_approved", False):
+            return {
+                "status": "approval_required", "routes": [],
+                "direct_buses": [], "route_count": 0,
+                "source": "Transitous (MOTIS)",
+                "attribution_url": ATTRIBUTION_URL,
+                "reason": (
+                    "Öffentliche Routing-API erst nach Abstimmung mit "
+                    "Transitous aktivieren (transitous.org/api/)."
+                ),
+            }
+        if current.get("status") == "online" and current.get("services"):
+            return {
+                "status": "not_needed", "routes": [], "direct_buses": [],
+                "route_count": 0, "attribution_url": ATTRIBUTION_URL,
+                "reason": "Bestehende Busquelle liefert bereits Verbindungen",
+            }
+        if self._transitous_cache is not None and self._transitous_checked_at:
+            if now - self._transitous_checked_at < MIN_REFRESH:
+                return self._transitous_cache
+
+        client = self.transitous_client
+        if client is None and getattr(self.api, "_session", None) is not None:
+            client = TransitousClient(self.api._session)
+            self.transitous_client = client
+        if client is None:
+            return {
+                "status": "unavailable", "routes": [], "direct_buses": [],
+                "route_count": 0, "attribution_url": ATTRIBUTION_URL,
+                "errors": ["Keine Transitous-HTTP-Sitzung verfügbar"],
+            }
+        route = {"origin": self.settings["origin"],
+                 "destination": self.settings["destination"]}
+        result = {
+            "status": "unavailable", "routes": [], "direct_buses": [],
+            "route_count": 0, "source": "Transitous (MOTIS)",
+            "attribution_url": ATTRIBUTION_URL,
+            "route": route, "errors": [],
+            "checked_at": now.isoformat(),
+            "service_limit": (
+                "Fahrten je zwei Stunden abgefragt; nicht vollständiger "
+                "Tagesfahrplan und keine Entwarnung bei leeren Ergebnissen"
+            ),
+        }
+        self._transitous_checked_at = now
+        try:
+            # Geocoded rail stations stand for their interchange complexes:
+            # radius=350 m in plan considers nearby Bahnhof/ZOB bus stops.
+            origin = await client.geocode(route["origin"])
+            destination = await client.geocode(route["destination"])
+            result["resolved_stations"] = {
+                "origin": {"name": origin["name"], "id": origin["id"]},
+                "destination": {"name": destination["name"], "id": destination["id"]},
+            }
+            windows = [now]
+            if now.hour >= 18:
+                windows.append(
+                    (now + timedelta(days=1)).replace(
+                        hour=4, minute=0, second=0, microsecond=0,
+                    )
+                )
+            successful = 0
+            itineraries = []
+            buses = []
+            for direction, first, last in (
+                ("same", origin, destination),
+                ("reverse", destination, origin),
+            ):
+                for when in windows:
+                    try:
+                        report = await client.plan(
+                            first, last, when, direction=direction,
+                        )
+                    except TransitousError as exc:
+                        result["errors"].append(f"{direction} {when:%H:%M}: {exc}")
+                        # Respect the provider; don't multiply failing routes.
+                        break
+                    successful += 1
+                    itineraries.extend(report["routes"])
+                    buses.extend(report["direct_buses"])
+            unique_buses = {
+                (row["direction"], row["name"], row["scheduled_departure"]): row
+                for row in buses
+            }
+            unique_routes = {
+                (row["direction"], row["scheduled_departure"],
+                 tuple(leg["line"] for leg in row["legs"])): row
+                for row in itineraries
+            }
+            result["direct_buses"] = sorted(
+                unique_buses.values(),
+                key=lambda v: v["scheduled_departure"],
+            )[:20]
+            result["routes"] = sorted(
+                unique_routes.values(),
+                key=lambda v: v["scheduled_departure"],
+            )[:20]
+            result["route_count"] = len(result["routes"])
+            result["direct_bus_count"] = len(result["direct_buses"])
+            result["status"] = (
+                "online" if successful == len(windows) * 2 else
+                "partial" if successful else "unavailable"
+            )
+            result["query_count"] = successful
+        except TransitousError as exc:
+            result["errors"].append(str(exc))
+        self._transitous_cache = result
+        return result
+
+    @staticmethod
+    def _combine_bus_sources(primary: dict, fallback: dict) -> dict:
+        """Keep each provider distinguishable; do not invent confirmed SEV."""
+        merged = dict(primary)
+        merged["primary_status"] = primary.get("status")
+        merged["fallback_status"] = fallback.get("status")
+        merged["fallback_source"] = "Transitous (MOTIS)"
+        merged["attribution_url"] = ATTRIBUTION_URL
+        merged["fallback_errors"] = fallback.get("errors", [])
+        merged["fallback_approval_required"] = (
+            fallback.get("status") == "approval_required"
+        )
+        if fallback.get("direct_buses"):
+            records = {
+                (row["direction"], row["name"], row["scheduled_departure"]): row
+                for row in (*primary.get("services", []), *fallback["direct_buses"])
+            }
+            merged["services"] = sorted(
+                records.values(), key=lambda row: row["scheduled_departure"],
+            )[:20]
+            merged["service_count"] = len(merged["services"])
+            merged["explicit_sev_count"] = sum(
+                row.get("explicit_sev") is True for row in merged["services"]
+            )
+            merged["status"] = (
+                "online" if fallback.get("status") == "online" else "partial"
+            )
+            merged["source"] = "DBF/transport.rest + Transitous"
+        elif (
+            primary.get("status") in ("unavailable", "unsupported")
+            and fallback.get("status") in ("online", "partial")
+        ):
+            merged["status"] = fallback["status"]
+            merged["source"] = "Transitous (keine direkte Busfahrt gefunden)"
+        return merged
+
     async def _async_update_route_only(self, now: datetime) -> dict:
         """Monitor any configured A-to-B route without an individual train time."""
         route = await self._route_health(None, now)
-        route["bus_connections"] = await self._bus_stop_route(now)
+        primary_bus = await self._bus_stop_route(now)
+        independent = await self._transitous_fallback(now, primary_bus)
+        route["transitous"] = independent
+        route["bus_connections"] = self._combine_bus_sources(primary_bus, independent)
         self._source_debug["bus_connections"] = route["bus_connections"]
+        self._source_debug["transitous"] = independent
         board_ok = route.get("source_status") in ("online", "partial")
         alerts_ok = route.get("alert_source_status") in ("online", "partial")
         provider_status = (
@@ -612,6 +771,9 @@ class BahnCoordinator(DataUpdateCoordinator):
                     "service_count": route["bus_connections"]["service_count"],
                     "errors": route["bus_connections"]["errors"],
                     "resolution": route["bus_connections"].get("resolution", "automatic"),
+                    "transitous_status": independent.get("status"),
+                    "transitous_route_count": independent.get("route_count", 0),
+                    "transitous_direct_bus_count": len(independent.get("direct_buses", [])),
                 },
                 "connection_alerts": {
                     "source_status": route.get("alert_source_status"),
