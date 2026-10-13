@@ -200,8 +200,8 @@ class BahnApi:
             raise BahnApiError("Bus-Haltestellensuche: ungültige Antwort")
         # Use exact stop names; accepting a similarly named station can
         # silently turn a replacement bus into a non-existent train service.
-        from .stations import select_station
-        found = select_station(data, stop_name)
+        from .stations import select_public_transport_stop
+        found = select_public_transport_stop(data, stop_name)
         if found is None:
             raise StationNotFound(
                 f"Bus-Haltestelle '{stop_name}' nicht eindeutig im Fahrplandienst"
