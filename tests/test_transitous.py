@@ -84,6 +84,15 @@ def test_geocode_accepts_named_station_complex_and_rejects_ambiguity():
     }], "Göttingen") is None
 
 
+def test_geocode_accepts_municipal_station_label_from_db_navigator():
+    matches = [{
+        "type": "STOP", "id": "ld-bus",
+        "name": "Leinefelde Bahnhof, Leinefelde-Worbis",
+        "lat": 51.388, "lon": 10.33,
+    }]
+    assert provider.select_stop(matches, "Leinefelde")["id"] == "ld-bus"
+
+
 def test_motis_direct_bus_re1_2125_with_walk_access():
     result = provider.normalize_motis(
         itineraries(walking(), bus_leg(), walking()),
