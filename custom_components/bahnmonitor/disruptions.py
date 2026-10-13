@@ -281,26 +281,29 @@ def merge_route_alerts(route: dict, report: dict) -> dict:
         ),
     )
     if not incidents:
-        partial = (route.get("corridor") or {}).get("candidates") or []
-        if partial and merged.get("status_code") in (
+        corridor = route.get("corridor") or {}
+        observed = corridor.get("observed_bus_sections") or []
+        possible = corridor.get("candidates") or []
+        if observed and merged.get("status_code") in (
             "no_data", "limited", "partial_source_unavailable",
         ):
-            # Board routes can reveal bus sections without explicit notices,
-            # but they DO NOT establish that this is officially SEV.
+            # A bus does not constitute an A-to-B trip. Even if the opposite
+            # station board mentions an interchange, the actual stopover times
+            # may be unavailable, and a previous train cannot connect.
             merged["status_code"] = "partial_bus_unconfirmed"
-            merged["status"] = "Bus-Teilstrecke gefunden (SEV ungeprüft)"
+            merged["status"] = "Bus-Teilstrecke gefunden (Anschluss ungeprüft)"
             examples = ", ".join(dict.fromkeys(
                 f"{item['train']} über {item['interchange']}"
-                for item in partial[:3]
+                for item in observed[:3]
             ))
             merged["summary"] = (
-                f"{len(partial)} mögliche Bus-Teilstrecke(n) mit Verknüpfung "
-                f"zu einem weiteren Bahnabschnitt beobachtet: {examples}. "
-                "Ein tatsächlicher Umstieg oder offizieller SEV ist damit "
-                "nicht bestätigt."
+                f"{len(observed)} Bus-Teilstrecke(n) in Bahnhofsdaten beobachtet: "
+                f"{examples}. {len(possible)} zeitlich nicht ausgeschlossene "
+                "Anschlusskandidat(en). Keine vollständige A–B-Verbindung "
+                "oder offizieller SEV bestätigt."
             )
             merged["alert_note"] = (
-                "Ersatzverkehr möglich, aber nicht bestätigt. "
+                "Busabschnitt nachgewiesen; Umstieg und SEV unbestätigt. "
                 "Die Verbindungs-API ist "
                 + ("erreichbar." if source == "online" else "nicht vollständig erreichbar.")
             )
