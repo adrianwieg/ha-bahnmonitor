@@ -723,3 +723,79 @@ def test_manual_debug_provider_failure_visible_but_no_false_sev(monkeypatch):
     assert result["directions"]["same"]["status"] == "error"
     assert "503" in result["directions"]["reverse"]["error"]
     assert len(coord._source_debug["manual_probes"]) == 1
+
+
+
+def test_real_bus_stops_probe_catches_2125_and_next_day_0457(monkeypatch):
+    """Replacement buses must not depend on train EVA IDs or regular RE times."""
+    coord_module, api_error = load_coordinator(monkeypatch)
+    t = datetime(2026, 10, 13, 19, 29, tzinfo=ZoneInfo("Europe/Berlin"))
+    origin_stop = "Leinefelde Bahnhof, Leinefelde-Worbis"
+    destination_stop = "Bahnhof/ZOB, Göttingen"
+
+    class BusApi:
+        lookups = []
+        queries = []
+
+        async def resolve_public_stop(self, query):
+            self.lookups.append(query)
+            return {
+                origin_stop: ("bus-leinefelde", origin_stop),
+                destination_stop: ("bus-goettingen", destination_stop),
+            }[query]
+
+        async def bus_journeys(self, first, last, when):
+            self.queries.append((first, last, when.hour))
+            if first != "bus-leinefelde":
+                return {"journeys": []}
+            day = "2026-10-13" if when.hour == 19 else "2026-10-14"
+            depart = "21:25" if when.hour == 19 else "04:57"
+            arrive = "22:30" if when.hour == 19 else "06:02"
+            return {"journeys": [{"legs": [{
+                "line": {"name": "Bus RE1", "mode": "bus", "product": "bus"},
+                "origin": {"name": origin_stop},
+                "destination": {"name": destination_stop},
+                "plannedDeparture": f"{day}T{depart}:00+02:00",
+                "plannedArrival": f"{day}T{arrive}:00+02:00",
+            }]}]}
+
+    api = BusApi()
+    coord = coord_module.BahnCoordinator(None, api, {
+        "origin": "Leinefelde", "destination": "Göttingen",
+        "origin_id": "rail-leinefelde", "destination_id": "rail-goettingen",
+        "bus_origin_stop": origin_stop, "bus_destination_stop": destination_stop,
+        "monitor_mode": "route", "line": "",
+    }, "bus-test")
+    report = asyncio.run(coord._bus_stop_route(t))
+    assert report["status"] == "online"
+    assert report["service_count"] == 2
+    assert [row["scheduled_departure"][11:16] for row in report["services"]] == [
+        "21:25", "04:57",
+    ]
+    assert len(api.lookups) == 2
+    assert len(api.queries) == 4
+    assert api.queries[0][0] == "bus-leinefelde"
+    assert api.queries[0][2] == 19
+    assert api.queries[1][2] == 4
+    # Cached for one hour: public provider is not flooded.
+    assert asyncio.run(coord._bus_stop_route(t + timedelta(minutes=10))) is report
+    assert len(api.queries) == 4
+
+
+def test_bus_service_outage_does_not_generate_fake_departures(monkeypatch):
+    coord_module, api_error = load_coordinator(monkeypatch)
+
+    class Offline:
+        async def resolve_public_stop(self, name):
+            raise api_error("HTTP 503")
+
+    coord = coord_module.BahnCoordinator(None, Offline(), {
+        "origin": "A", "destination": "B",
+        "origin_id": "a", "destination_id": "b",
+        "bus_origin_stop": "Bus A", "bus_destination_stop": "Bus B",
+        "line": "", "monitor_mode": "route",
+    }, "bus-error")
+    result = asyncio.run(coord._bus_stop_route(NOW))
+    assert result["status"] == "unavailable"
+    assert result["services"] == []
+    assert "503" in result["errors"][0]
