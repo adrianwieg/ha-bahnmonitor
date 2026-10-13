@@ -855,3 +855,113 @@ def test_route_automatically_discovers_bus_stops_without_options(monkeypatch):
     ]
     assert asyncio.run(coord._bus_stop_route(t + timedelta(minutes=10))) is observed
     assert len(api.journey_requests) == 4
+
+
+
+def test_transitous_requires_explicit_operator_permission_and_calls_no_api(monkeypatch):
+    coord_module, error = load_coordinator(monkeypatch)
+
+    class ForbiddenClient:
+        async def geocode(self, *args):
+            raise AssertionError("Transitous must not be queried without approval")
+
+    coord = coord_module.BahnCoordinator(None, object(), {
+        "monitor_mode": "route", "origin": "Leinefelde",
+        "destination": "Göttingen", "line": "",
+    }, "permission-required")
+    coord.transitous_client = ForbiddenClient()
+    status = asyncio.run(coord._transitous_fallback(
+        NOW, {"status": "unavailable", "services": []},
+    ))
+    assert status["status"] == "approval_required"
+    assert status["routes"] == []
+    assert status["direct_buses"] == []
+
+
+def test_transitous_replaces_missing_direct_bus_with_independent_source(monkeypatch):
+    coord_module, error = load_coordinator(monkeypatch)
+
+    class AuthorizedClient:
+        geocode_calls = []
+        route_calls = []
+
+        async def geocode(self, name):
+            self.geocode_calls.append(name)
+            return {
+                "name": name, "id": name, "lat": 51.5, "lon": 10.0,
+            }
+
+        async def plan(self, first, last, when, *, direction):
+            self.route_calls.append((direction, when.isoformat()))
+            if direction == "reverse":
+                return {"status": "online", "routes": [], "direct_buses": []}
+            dep = "2026-10-08T21:25:00+02:00"
+            return {
+                "status": "online",
+                "routes": [{
+                    "direction": "same", "scheduled_departure": dep,
+                    "legs": [{"mode": "BUS", "line": "RE1"}],
+                }],
+                "direct_buses": [{
+                    "direction": "same", "name": "Bus RE1",
+                    "scheduled_departure": dep,
+                    "scheduled_arrival": "2026-10-08T22:30:00+02:00",
+                    "explicit_sev": False,
+                    "source": "Transitous (MOTIS)",
+                }],
+            }
+
+    coord = coord_module.BahnCoordinator(None, object(), {
+        "monitor_mode": "route", "origin": "Leinefelde",
+        "destination": "Göttingen", "line": "RE 1",
+        "transitous_approved": True,
+    }, "consented-route")
+    fake = AuthorizedClient()
+    coord.transitous_client = fake
+    primary = {
+        "status": "unavailable", "services": [], "service_count": 0,
+        "explicit_sev_count": 0, "errors": ["HTTP 503"],
+    }
+    result = asyncio.run(coord._transitous_fallback(NOW, primary))
+    assert result["status"] == "online"
+    assert len(result["direct_buses"]) == 1
+    assert result["direct_buses"][0]["name"] == "Bus RE1"
+    assert fake.geocode_calls == ["Leinefelde", "Göttingen"]
+    assert len(fake.route_calls) == 2
+    combined = coord._combine_bus_sources(primary, result)
+    assert combined["status"] == "online"
+    assert combined["service_count"] == 1
+    assert combined["fallback_status"] == "online"
+    assert combined["explicit_sev_count"] == 0
+    assert combined["errors"] == ["HTTP 503"]
+    cached = asyncio.run(
+        coord._transitous_fallback(NOW + timedelta(minutes=40), primary)
+    )
+    assert cached is result
+    assert len(fake.route_calls) == 2
+
+
+def test_transitous_failure_does_not_relabel_http503_as_no_bus(monkeypatch):
+    coord_module, error = load_coordinator(monkeypatch)
+
+    class Failing:
+        async def geocode(self, name):
+            raise coord_module.TransitousError("HTTP 429")
+
+    coord = coord_module.BahnCoordinator(None, object(), {
+        "origin": "A", "destination": "B",
+        "line": "", "monitor_mode": "route",
+        "transitous_approved": True,
+    }, "429")
+    coord.transitous_client = Failing()
+    primary = {
+        "status": "unavailable", "services": [], "service_count": 0,
+        "errors": ["DB HTTP 503"], "explicit_sev_count": 0,
+    }
+    result = asyncio.run(coord._transitous_fallback(NOW, primary))
+    assert result["status"] == "unavailable"
+    assert "429" in result["errors"][0]
+    combined = coord._combine_bus_sources(primary, result)
+    assert combined["status"] == "unavailable"
+    assert combined["service_count"] == 0
+    assert combined["fallback_errors"] == result["errors"]
